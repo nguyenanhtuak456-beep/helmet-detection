@@ -501,13 +501,23 @@ def get_model_classes_text(model_path):
     try:
         m = load_yolo_model(model_path)
         names = getattr(m, "names", {})
+
         if isinstance(names, dict):
-            return ", ".join(f"{k}:{normalize_detection_class(v, k)}" for k, v in names.items())
+            return ", ".join(
+                f"{k}:{normalize_detection_class(v, k)}"
+                for k, v in names.items()
+            )
+
         if isinstance(names, (list, tuple)):
-            return ", ".join(f"{i}:{normalize_detection_class(v, i)}" for i, v in enumerate(names))
-    except Exception:
-        pass
-    return "Không đọc được"
+            return ", ".join(
+                f"{i}:{normalize_detection_class(v, i)}"
+                for i, v in enumerate(names)
+            )
+
+        return f"Định dạng tên lớp không hợp lệ: {type(names).__name__}"
+
+    except Exception as e:
+        return f"Lỗi đọc model: {type(e).__name__}: {e}"
 
 
 from core.tracker_config import get_custom_tracker_yaml
