@@ -21,6 +21,14 @@ import os
 import shutil
 import subprocess
 import torch
+
+from core.history_db import (
+    init_db,
+    add_history,
+    get_history,
+    get_history_by_id,
+    delete_history,
+)
 from collections import defaultdict, deque
 from ultralytics import YOLO
 
@@ -2390,99 +2398,82 @@ def _render_video_status():
     render_html(f'<div style="text-align:right"><span class="live-pill {css}"><i></i>{label}</span></div>')
 
 
-def _render_video_progress():
-    task = st.session_state.get("video_detection_task")
-    if not task:
+def render_history_mode(device_label):
+    st.markdown("## LỊCH SỬ PHÂN TÍCH")
+    st.caption("Quản lý các video đã được AI phân tích.")
+
+    history_items = get_history(limit=100)
+
+    if not history_items:
+        st.info("Chưa có lịch sử phân tích video.")
         return
 
-    if task.get("done") and task.get("error"):
-        st.error(f"Không thể xử lý video: {task['error']}")
-        task["applied"] = True
-        return
+    st.write(f"Tổng số lần phân tích: {len(history_items)}")
 
-    if task.get("done") and not task.get("applied"):
-        if task.get("result"):
-            result = task["result"]
-            st.session_state.processed_video_path = result["processed_video_path"]
-            st.session_state.stats = result["stats"]
-            st.session_state.recent_detections = result["recent_detections"]
-            st.session_state.saved_drive_path = result.get("saved_drive_path")
-            run_cfg = dict(task.get("run_config", {}))
-            run_cfg["elapsed"] = task.get("elapsed", 0.0)
-            run_cfg["finished_at"] = datetime.now().strftime("%H:%M:%S %d/%m/%Y")
-            st.session_state.run_config = run_cfg
-            # Lưu lịch sử phân tích video
-            if not task.get("history_saved", False):
-                result_path = result.get("processed_video_path")
-                source_path = task.get("source_video_path")
-                source_name = run_cfg.get("file_name", "video.mp4")
+    for item in history_items:
+        with st.container(border=True):
+            col1, col2 = st.columns([4, 1])
 
-                if result_path and os.path.exists(result_path):
-                    history_video_dir = Path(__file__).resolve().parent / "data" / "videos"
-                    history_video_dir.mkdir(parents=True, exist_ok=True)
+            with col1:
+                st.markdown(f"**{item['video_name']}**")
+                st.caption(f"Thời gian: {item['created_at']}")
 
-                    unique_name = (
-                         datetime.now().strftime("%Y%m%d_%H%M%S")
-                        + "_"
-                        + uuid.uuid4().hex[:8]
-                        + ".mp4"
-                     )
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Xe máy", item["motorbike"])
+                c2.metric("Có mũ", item["helmet"])
+                c3.metric("Không mũ", item["no_helmet"])
 
-                    permanent_video_path =   history_video_dir / unique_name
-                    shutil.copy2(result_path, permanent_video_path)
+                st.caption(
+                    f"Độ tin cậy trung bình: {item['avg_conf']:.2%} | "
+                    f"Thời gian xử lý: {item['elapsed']:.2f} giây"
+                )
 
-                    history_id = add_history(
-                        video_name=source_name,
-                        source_video_path=source_path,
-                        result_video_path=str(permanent_video_path.resolve()),
-                        stats=result.get("stats", {}),
-                        config=run_cfg,
-                        recent_detections=result.get("recent_detections", []),
-                        elapsed=task.get("elapsed", 0.0),
-                    )
+            with col2:
+                if st.button(
+                    "Xem chi tiết",
+                    key=f"history_view_{item['id']}"
+                ):
+                    st.session_state.selected_history_id = item["id"]
 
-                    task["history_id"] = history_id
-                    task["history_saved"] = True
+                if st.button(
+                    "Xóa",
+                    key=f"history_delete_{item['id']}"
+                ):
+                    delete_history(item["id"])
 
-                else:
-                    st.warning("Không tìm thấy video kết quả để lưu lịch sử.")
+                    if st.session_state.get("selected_history_id") == item["id"]:
+                        st.session_state.pop("selected_history_id", None)
 
-            task["applied"] = True
-            st.rerun()
+                    st.rerun()
 
-    progress = task.get("progress", {})
-    fraction = float(progress.get("fraction", 0.0))
-    frame = int(progress.get("frame", 0))
-    total = int(progress.get("total", 0))
-    percent = int(round(fraction * 100))
+    selected_id = st.session_state.get("selected_history_id")
 
-    if task.get("done"):
-        st.progress(1.0)
-        st.markdown('<div class="progress-caption">✓ Hoàn tất xử lý video.</div>', unsafe_allow_html=True)
-        return
+    if selected_id is not None:
+        selected = get_history_by_id(selected_id)
 
-    st.progress(max(0.0, min(fraction, 1.0)))
-    if task["pause_event"].is_set():
-        label = f"Đang tạm dừng: {percent}% ({frame}/{total} khung hình)" if total else "Đang tạm dừng xử lý"
-    else:
-        label = f"Đang xử lý: {percent}% ({frame}/{total} khung hình)" if total else "Đang khởi tạo xử lý video..."
-    st.markdown(f'<div class="progress-caption">{label}</div>', unsafe_allow_html=True)
-    if task["pause_event"].is_set():
-        if st.button("▶  Tiếp tục", key="resume_video_task", use_container_width=True):
-            task["pause_event"].clear()
-            st.rerun()
-    else:
-        if st.button("Ⅱ  Tạm dừng", key="pause_video_task", use_container_width=True):
-            task["pause_event"].set()
-            st.rerun()
+        if selected:
+            st.divider()
+            st.markdown("### CHI TIẾT PHÂN TÍCH")
 
+            st.write("Tên video:", selected["video_name"])
+            st.write("Thời gian:", selected["created_at"])
 
-if hasattr(st, "fragment"):
-    render_video_progress = st.fragment(run_every=0.5)(_render_video_progress)
-    render_video_status = st.fragment(run_every=0.5)(_render_video_status)
-else:
-    render_video_progress = _render_video_progress
-    render_video_status = _render_video_status
+            st.markdown("#### Thống kê nhận diện")
+            st.json(selected.get("stats", {}))
+
+            st.markdown("#### Cấu hình phân tích")
+            st.json(selected.get("config", {}))
+
+            video_path = selected.get("result_video_path")
+
+            if video_path and os.path.exists(video_path):
+                st.video(video_path)
+            else:
+                st.warning("Không tìm thấy video kết quả.")
+
+            if st.button("Đóng chi tiết"):
+                st.session_state.pop("selected_history_id", None)
+                st.rerun()
 
 
 # =====================================================================
