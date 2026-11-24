@@ -51,9 +51,16 @@ def get_model_path():
 
     model_path = model_dir / "best.pt"
 
-    # Nếu model đã được tải thì sử dụng lại
-    if model_path.is_file() and model_path.stat().st_size > 0:
-        return str(model_path)
+    # Kiểm tra file model đã tồn tại
+if model_path.is_file():
+    with open(model_path, "rb") as f:
+        header = f.read(100)
+
+    print("MODEL FILE SIZE:", model_path.stat().st_size)
+    print("MODEL FILE HEADER:", repr(header))
+
+    # Tạm thời xóa file cũ để tải lại
+    model_path.unlink()
 
     # Tải model từ Google Drive
     print("Đang tải YOLO model từ Google Drive...")
