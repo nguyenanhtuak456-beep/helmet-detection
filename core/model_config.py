@@ -2,14 +2,18 @@
 import os
 from pathlib import Path
 
+import gdown
+
 
 def get_model_path():
     """
-    Lấy đường dẫn model YOLO từ biến môi trường.
-    Nếu chưa cấu hình, thử tìm best.pt trong thư mục dự án.
+    Lấy đường dẫn YOLO model theo thứ tự:
+    1. Biến môi trường AI_TRAFFIC_MODEL_PATH.
+    2. File best.pt có sẵn trong dự án.
+    3. Tải best.pt từ Google Drive.
     """
 
-    # Ưu tiên đường dẫn do máy chủ cung cấp
+    # 1. Kiểm tra đường dẫn model được cấu hình bằng biến môi trường
     env_path = os.getenv("AI_TRAFFIC_MODEL_PATH")
 
     if env_path:
@@ -22,13 +26,55 @@ def get_model_path():
             f"Không tìm thấy model tại: {model_path}"
         )
 
-    # Dùng best.pt trong thư mục dự án khi chạy thử local
-    local_path = Path(__file__).resolve().parent.parent / "best.pt"
+    # 2. Kiểm tra model có sẵn trong thư mục dự án
+    project_path = Path(__file__).resolve().parent.parent
+    local_path = project_path / "best.pt"
 
     if local_path.is_file():
         return str(local_path)
 
-    raise FileNotFoundError(
-        "Không tìm thấy best.pt. "
-        "Hãy cấu hình AI_TRAFFIC_MODEL_PATH."
+    # 3. Lấy mã file Google Drive từ Streamlit Secrets
+    try:
+        import streamlit as st
+        file_id = st.secrets.get("GDRIVE_FILE_ID", "")
+    except Exception:
+        file_id = os.getenv("GDRIVE_FILE_ID", "")
+
+    if not file_id:
+        raise FileNotFoundError(
+            "Chưa cấu hình GDRIVE_FILE_ID trong Streamlit Secrets."
+        )
+
+    # Tạo thư mục lưu model
+    model_dir = project_path / "models"
+    model_dir.mkdir(parents=True, exist_ok=True)
+
+    model_path = model_dir / "best.pt"
+
+    # Nếu model đã được tải thì sử dụng lại
+    if model_path.is_file() and model_path.stat().st_size > 0:
+        return str(model_path)
+
+    # Tải model từ Google Drive
+    print("Đang tải YOLO model từ Google Drive...")
+
+    downloaded_file = gdown.download(
+        id=file_id,
+        output=str(model_path),
+        quiet=False,
+        fuzzy=True,
     )
+
+    if (
+        downloaded_file is None
+        or not model_path.is_file()
+        or model_path.stat().st_size == 0
+    ):
+        raise RuntimeError(
+            "Không tải được best.pt từ Google Drive. "
+            "Hãy kiểm tra quyền chia sẻ của file."
+        )
+
+    print("Đã tải YOLO model thành công.")
+
+    return str(model_path)
