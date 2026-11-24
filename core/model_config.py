@@ -13,7 +13,7 @@ def get_model_path():
     3. Tải best.pt từ Google Drive.
     """
 
-    # 1. Kiểm tra đường dẫn model được cấu hình bằng biến môi trường
+    # 1. Kiểm tra đường dẫn model từ biến môi trường
     env_path = os.getenv("AI_TRAFFIC_MODEL_PATH")
 
     if env_path:
@@ -30,10 +30,12 @@ def get_model_path():
     project_path = Path(__file__).resolve().parent.parent
     local_path = project_path / "best.pt"
 
-    if local_path.is_file():
+    if local_path.is_file() and local_path.stat().st_size > 0:
         return str(local_path)
 
     # 3. Lấy mã file Google Drive từ Streamlit Secrets
+    file_id = ""
+
     try:
         import streamlit as st
         file_id = st.secrets.get("GDRIVE_FILE_ID", "")
@@ -45,42 +47,79 @@ def get_model_path():
             "Chưa cấu hình GDRIVE_FILE_ID trong Streamlit Secrets."
         )
 
-    # Tạo thư mục lưu model
+    # 4. Tạo thư mục lưu model
     model_dir = project_path / "models"
     model_dir.mkdir(parents=True, exist_ok=True)
 
     model_path = model_dir / "best.pt"
+    temp_path = model_dir / "best_download.tmp"
 
-    # Kiểm tra file model đã tồn tại
-if model_path.is_file():
-    with open(model_path, "rb") as f:
-        header = f.read(100)
+    # 5. Kiểm tra file model cũ nếu tồn tại
+    if model_path.is_file():
+        with open(model_path, "rb") as f:
+            header = f.read(100)
 
-    print("MODEL FILE SIZE:", model_path.stat().st_size)
-    print("MODEL FILE HEADER:", repr(header))
+        print("MODEL FILE SIZE:", model_path.stat().st_size)
+        print("MODEL FILE HEADER:", repr(header))
 
-    # Tạm thời xóa file cũ để tải lại
-    model_path.unlink()
+        # Không sử dụng file rỗng hoặc file có nội dung văn bản lỗi
+        if (
+            model_path.stat().st_size > 0
+            and not header.lstrip().startswith(
+                (b"#", b"<", b"{", b"Access denied")
+            )
+        ):
+            return str(model_path)
 
-    # Tải model từ Google Drive
+        print("File model cũ không hợp lệ, sẽ tải lại.")
+        model_path.unlink()
+
+    # 6. Xóa file tải tạm từ lần chạy trước
+    if temp_path.exists():
+        temp_path.unlink()
+
+    # 7. Tải model từ Google Drive
     print("Đang tải YOLO model từ Google Drive...")
 
-    downloaded_file = gdown.download(
-    id=file_id,
-    output=str(model_path),
-    quiet=False,
-)
-
-    if (
-        downloaded_file is None
-        or not model_path.is_file()
-        or model_path.stat().st_size == 0
-    ):
-        raise RuntimeError(
-            "Không tải được best.pt từ Google Drive. "
-            "Hãy kiểm tra quyền chia sẻ của file."
+    try:
+        downloaded_file = gdown.download(
+            id=file_id,
+            output=str(temp_path),
+            quiet=False,
         )
 
-    print("Đã tải YOLO model thành công.")
+        if (
+            downloaded_file is None
+            or not temp_path.is_file()
+            or temp_path.stat().st_size == 0
+        ):
+            raise RuntimeError(
+                "Google Drive không trả về file model hợp lệ."
+            )
 
-    return str(model_path)
+        # Kiểm tra nội dung tải về
+        with open(temp_path, "rb") as f:
+            header = f.read(100)
+
+        print("DOWNLOADED MODEL SIZE:", temp_path.stat().st_size)
+        print("DOWNLOADED MODEL HEADER:", repr(header))
+
+        if header.lstrip().startswith(
+            (b"#", b"<", b"{", b"Access denied")
+        ):
+            raise RuntimeError(
+                "Google Drive trả về nội dung văn bản thay vì file best.pt. "
+                "Hãy kiểm tra quyền chia sẻ và liên kết Google Drive."
+            )
+
+        # Chuyển file tải thành best.pt chính thức
+        os.replace(temp_path, model_path)
+
+        print("Đã tải YOLO model thành công.")
+
+        return str(model_path)
+
+    except Exception:
+        if temp_path.exists():
+            temp_path.unlink()
+        raise
