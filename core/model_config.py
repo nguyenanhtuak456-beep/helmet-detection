@@ -59,11 +59,10 @@ def get_model_path():
     print("Đang tải YOLO model từ Google Drive...")
 
     downloaded_file = gdown.download(
-        id=file_id,
-        output=str(model_path),
-        quiet=False,
-        fuzzy=True,
-    )
+    id=file_id,
+    output=str(model_path),
+    quiet=False,
+)
 
     if (
         downloaded_file is None
