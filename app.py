@@ -2398,6 +2398,47 @@ def _render_video_status():
     render_html(f'<div style="text-align:right"><span class="live-pill {css}"><i></i>{label}</span></div>')
 
 
+def render_video_progress():
+    """Hiển thị tiến trình xử lý video và điều khiển tạm dừng/tiếp tục."""
+    task = st.session_state.get("video_detection_task")
+    if not task:
+        return
+
+    progress = task.get("progress") or {}
+    fraction = float(progress.get("fraction", 0.0) or 0.0)
+    fraction = max(0.0, min(1.0, fraction))
+    frame = int(progress.get("frame", 0) or 0)
+    total = int(progress.get("total", 0) or 0)
+
+    if task.get("error"):
+        st.error(f"Xử lý video thất bại: {task['error']}")
+        return
+
+    if task.get("done"):
+        st.progress(1.0 if task.get("status") == "done" else fraction)
+        if task.get("status") == "done":
+            st.success("Đã xử lý video hoàn tất.")
+        return
+
+    st.markdown("**TIẾN TRÌNH XỬ LÝ VIDEO**")
+    st.progress(fraction)
+    if total > 0:
+        st.caption(f"Đã xử lý {frame:,} / {total:,} khung hình ({fraction * 100:.1f}%).")
+    else:
+        st.caption(f"Đã xử lý {frame:,} khung hình ({fraction * 100:.1f}%).")
+
+    pause_event = task.get("pause_event")
+    if pause_event is not None:
+        is_paused = pause_event.is_set()
+        button_label = "▶ Tiếp tục xử lý" if is_paused else "Ⅱ Tạm dừng xử lý"
+        if st.button(button_label, use_container_width=True, key="video_progress_pause_toggle"):
+            if is_paused:
+                pause_event.clear()
+            else:
+                pause_event.set()
+            st.rerun()
+
+
 def render_history_mode(device_label):
     st.markdown("## LỊCH SỬ PHÂN TÍCH")
     st.caption("Quản lý các video đã được AI phân tích.")
