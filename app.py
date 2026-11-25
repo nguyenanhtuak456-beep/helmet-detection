@@ -13,6 +13,7 @@ import uuid
 from pathlib import Path
 
 import streamlit as st
+import streamlit.components.v1 as components
 import cv2
 import numpy as np
 import pandas as pd
@@ -2938,20 +2939,157 @@ def history_tile(label, value, color, tint):
     )
 
 
+def _select_history(item_id):
+    """Bấm vào mục đang mở thì thu gọn, bấm mục khác thì mở mục đó."""
+    if st.session_state.get("selected_history_id") == item_id:
+        st.session_state.pop("selected_history_id", None)
+        st.session_state.pop("scroll_to_history", None)
+    else:
+        st.session_state.selected_history_id = item_id
+        st.session_state.scroll_to_history = item_id
+
+
+def _close_history_detail():
+    st.session_state.pop("selected_history_id", None)
+    st.session_state.pop("scroll_to_history", None)
+
+
+def _scroll_to_history_detail():
+    """Cuộn mượt tới khối chi tiết (chỉ chạy một lần ngay sau khi bấm)."""
+    try:
+        components.html(
+            """
+            <script>
+              setTimeout(function () {
+                try {
+                  var doc = window.parent.document;
+                  var el = doc.getElementById("history-detail-anchor");
+                  if (el) { el.scrollIntoView({behavior: "smooth", block: "start"}); }
+                } catch (e) {}
+              }, 180);
+            </script>
+            """,
+            height=0,
+        )
+    except Exception:
+        pass
+
+
+def render_history_detail(selected_id, history_items, device_label):
+    """Khối chi tiết, được gọi ngay bên dưới thẻ của mục đang chọn."""
+    selected = get_history_by_id(selected_id)
+    if not selected:
+        return
+
+    st.markdown('<div id="history-detail-anchor"></div>', unsafe_allow_html=True)
+    st.markdown("### CHI TIẾT PHÂN TÍCH")
+    st.markdown(f"**{selected['video_name']}**")
+    st.caption(f"Thời gian: {selected['created_at']}")
+
+    sel_stats = selected.get("stats") or {}
+    sel_cfg = selected.get("config") or {}
+
+    # Tốc độ xử lý = tổng số khung hình / thời gian xử lý
+    frames = int((sel_cfg.get("video") or {}).get("frames", 0) or 0)
+    sel_elapsed = selected.get("elapsed")
+    if not sel_elapsed:
+        sel_elapsed = next(
+            (i.get("elapsed") for i in history_items if i["id"] == selected_id), 0.0
+        ) or sel_cfg.get("elapsed", 0.0)
+    sel_elapsed = float(sel_elapsed or 0.0)
+    fps_value = (frames / sel_elapsed) if sel_elapsed > 0 else 0.0
+
+    is_image = sel_cfg.get("media_type") == "image"
+
+    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+    render_smart_kpis(sel_stats, fps_value, device_label,
+                      is_image=is_image, elapsed=sel_elapsed)
+
+    if is_image:
+        ann_path = sel_cfg.get("annotated_path") or selected.get("result_video_path")
+        orig_path = sel_cfg.get("original_path") or selected.get("source_video_path")
+        st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+        with panel("panel_history_image"):
+            render_html('<div class="card-title"><span>◉  Kết quả nhận diện ảnh</span></div>')
+            img_c1, img_c2 = st.columns(2, gap="large")
+            with img_c1:
+                st.caption("Ảnh ban đầu")
+                if orig_path and os.path.exists(orig_path):
+                    show_image(orig_path)
+                else:
+                    st.warning("Không tìm thấy ảnh gốc.")
+            with img_c2:
+                st.caption("Kết quả nhận diện")
+                if ann_path and os.path.exists(ann_path):
+                    show_image(ann_path)
+                    with open(ann_path, "rb") as fh:
+                        st.download_button(
+                            "⬇️ Tải ảnh kết quả (.jpg)", data=fh.read(),
+                            file_name="history_detected.jpg", mime="image/jpeg",
+                            key=f"hbtn_dl_img_{selected_id}",
+                        )
+                else:
+                    st.warning("Không tìm thấy ảnh kết quả.")
+    else:
+        st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+        render_timeline_panel(sel_stats, "timeline_panel_history")
+
+        st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+        video_path = selected.get("result_video_path")
+        with panel("panel_history_video"):
+            render_html('<div class="card-title"><span>◉  Video kết quả</span></div>')
+            if video_path and os.path.exists(video_path):
+                st.video(video_path)
+            else:
+                st.warning("Không tìm thấy video kết quả.")
+
+    with st.expander("Xem bảng dữ liệu chi tiết & cấu hình phân tích", expanded=False):
+        if is_image:
+            st.json(sel_cfg)
+        else:
+            v_tl = _normalize_timeline(sel_stats.get("timeline"))
+            h_tl = _normalize_timeline(sel_stats.get("helmet_timeline"))
+            times = sorted(set(v_tl) | set(h_tl))
+            detail_col, cfg_col = st.columns([1.25, 1], gap="large")
+            with detail_col:
+                show_table(pd.DataFrame({
+                    "Thời gian (giây)": times,
+                    "Đội mũ": [h_tl.get(t, 0) for t in times],
+                    "Không đội mũ": [v_tl.get(t, 0) for t in times],
+                }))
+            with cfg_col:
+                st.json(sel_cfg)
+
+    st.button("Đóng chi tiết", key="hbtn_close_detail", on_click=_close_history_detail)
+    st.divider()
+
+    # Tự cuộn tới khối chi tiết, chỉ một lần ngay sau khi người dùng bấm "Xem chi tiết"
+    if st.session_state.get("scroll_to_history") == selected_id:
+        st.session_state.pop("scroll_to_history", None)
+        _scroll_to_history_detail()
+
+
 def render_history_mode(device_label):
     st.markdown("## LỊCH SỬ PHÂN TÍCH")
-    st.caption("Quản lý các video đã được AI phân tích.")
+    st.caption("Quản lý các video và ảnh đã được AI phân tích.")
 
     history_items = get_history(limit=100)
 
     if not history_items:
-        st.info("Chưa có lịch sử phân tích video.")
+        st.info("Chưa có lịch sử phân tích.")
         return
+
+    # Nếu mục đang chọn đã bị xóa khỏi DB thì bỏ chọn
+    valid_ids = {i["id"] for i in history_items}
+    if st.session_state.get("selected_history_id") not in valid_ids:
+        st.session_state.pop("selected_history_id", None)
 
     st.write(f"Tổng số lần phân tích: {len(history_items)}")
 
     for item in history_items:
         has_violation = int(item["no_helmet"]) > 0
+        is_selected = st.session_state.get("selected_history_id") == item["id"]
+
         with history_card(item["id"], has_violation):
             col1, col2 = st.columns([4, 1])
 
@@ -2996,12 +3134,13 @@ def render_history_mode(device_label):
 
             with col2:
                 # Key KHÔNG bắt đầu bằng "history_" để tránh dính CSS panel (st-key-history_*)
-                if st.button(
-                    "Xem chi tiết",
+                st.button(
+                    "Ẩn chi tiết" if is_selected else "Xem chi tiết",
                     key=f"hbtn_view_{item['id']}",
                     width="stretch",
-                ):
-                    st.session_state.selected_history_id = item["id"]
+                    on_click=_select_history,
+                    args=(item["id"],),
+                )
 
                 if st.button(
                     "Xóa",
@@ -3009,100 +3148,13 @@ def render_history_mode(device_label):
                     width="stretch",
                 ):
                     delete_history(item["id"])
-
                     if st.session_state.get("selected_history_id") == item["id"]:
                         st.session_state.pop("selected_history_id", None)
-
                     st.rerun()
 
-    selected_id = st.session_state.get("selected_history_id")
-
-    if selected_id is not None:
-        selected = get_history_by_id(selected_id)
-
-        if selected:
-            st.divider()
-            st.markdown("### CHI TIẾT PHÂN TÍCH")
-            st.markdown(f"**{selected['video_name']}**")
-            st.caption(f"Thời gian: {selected['created_at']}")
-
-            sel_stats = selected.get("stats") or {}
-            sel_cfg = selected.get("config") or {}
-
-            # Tốc độ xử lý = tổng số khung hình / thời gian xử lý
-            frames = int((sel_cfg.get("video") or {}).get("frames", 0) or 0)
-            sel_elapsed = selected.get("elapsed")
-            if not sel_elapsed:
-                sel_elapsed = next(
-                    (i.get("elapsed") for i in history_items if i["id"] == selected_id), 0.0
-                ) or sel_cfg.get("elapsed", 0.0)
-            sel_elapsed = float(sel_elapsed or 0.0)
-            fps_value = (frames / sel_elapsed) if sel_elapsed > 0 else 0.0
-
-            is_image = sel_cfg.get("media_type") == "image"
-
-            st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
-            render_smart_kpis(sel_stats, fps_value, device_label,
-                              is_image=is_image, elapsed=sel_elapsed)
-
-            if is_image:
-                ann_path = sel_cfg.get("annotated_path") or selected.get("result_video_path")
-                orig_path = sel_cfg.get("original_path") or selected.get("source_video_path")
-                st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
-                with panel("panel_history_image"):
-                    render_html('<div class="card-title"><span>◉  Kết quả nhận diện ảnh</span></div>')
-                    img_c1, img_c2 = st.columns(2, gap="large")
-                    with img_c1:
-                        st.caption("Ảnh ban đầu")
-                        if orig_path and os.path.exists(orig_path):
-                            show_image(orig_path)
-                        else:
-                            st.warning("Không tìm thấy ảnh gốc.")
-                    with img_c2:
-                        st.caption("Kết quả nhận diện")
-                        if ann_path and os.path.exists(ann_path):
-                            show_image(ann_path)
-                            with open(ann_path, "rb") as fh:
-                                st.download_button(
-                                    "⬇️ Tải ảnh kết quả (.jpg)", data=fh.read(),
-                                    file_name="history_detected.jpg", mime="image/jpeg",
-                                    key=f"hbtn_dl_img_{selected_id}",
-                                )
-                        else:
-                            st.warning("Không tìm thấy ảnh kết quả.")
-            else:
-                st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
-                render_timeline_panel(sel_stats, "timeline_panel_history")
-
-                st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
-                video_path = selected.get("result_video_path")
-                with panel("panel_history_video"):
-                    render_html('<div class="card-title"><span>◉  Video kết quả</span></div>')
-                    if video_path and os.path.exists(video_path):
-                        st.video(video_path)
-                    else:
-                        st.warning("Không tìm thấy video kết quả.")
-
-            with st.expander("Xem bảng dữ liệu chi tiết & cấu hình phân tích", expanded=False):
-                if is_image:
-                    st.json(sel_cfg)
-                else:
-                    v_tl = _normalize_timeline(sel_stats.get("timeline"))
-                    h_tl = _normalize_timeline(sel_stats.get("helmet_timeline"))
-                    times = sorted(set(v_tl) | set(h_tl))
-                    detail_col, cfg_col = st.columns([1.25, 1], gap="large")
-                    with detail_col:
-                        show_table(pd.DataFrame({
-                            "Thời gian (giây)": times,
-                            "Đội mũ": [h_tl.get(t, 0) for t in times],
-                            "Không đội mũ": [v_tl.get(t, 0) for t in times],
-                        }))
-                    with cfg_col:
-                        st.json(sel_cfg)
-
-            if st.button("Đóng chi tiết", key="hbtn_close_detail"):
-                st.session_state.pop("selected_history_id", None)
-                st.rerun()
+        # Chi tiết hiện ngay bên dưới thẻ đang được chọn
+        if is_selected:
+            render_history_detail(item["id"], history_items, device_label)
 
 
 # =====================================================================
