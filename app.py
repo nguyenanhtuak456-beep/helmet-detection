@@ -1987,6 +1987,21 @@ div[class*="st-key-hcard_"]:hover {
 .pn-head { padding-bottom: 10px; border-bottom: 1px solid #254158; margin-bottom: 14px !important; }
 div[class*="st-key-timeline_panel"] .card-title { padding-bottom: 10px; border-bottom: 1px solid #254158; margin-bottom: 14px !important; }
 div[class*="st-key-control_panel"] .card-title { padding-bottom: 10px; border-bottom: 1px solid #254158; }
+
+/* 12. Thương hiệu sidebar: logo lớn căn giữa, tên + mô tả bên dưới */
+[data-testid="stSidebar"] [data-testid="stImage"] {
+  display: flex !important; justify-content: center !important; margin: 4px 0 6px !important;
+}
+[data-testid="stSidebar"] [data-testid="stImage"] img {
+  border-radius: 0 !important; box-shadow: none !important;
+  filter: drop-shadow(0 0 14px rgba(34,211,238,.22));
+}
+.sb-brand-text {
+  align-items: center !important; text-align: center !important; min-height: 0 !important; margin-top: 4px;
+}
+.sb-brand-text b { font-size: 18px !important; letter-spacing: -.2px !important; }
+.sb-brand-text small { font-size: 12px !important; margin-top: 4px !important; }
+.sb-brand-divider { margin: 16px 0 6px !important; }
 """
 
 
@@ -3127,18 +3142,13 @@ def set_mode(mode, nav_key=None):
 
 # ------------------------ SIDEBAR ------------------------
 with st.sidebar:
-    logo_col, title_col = st.columns([1.2, 4])
-
-    with logo_col:
-        st.image("assets/logo.png", width=65)
-
-    with title_col:
-        render_html(
-            '<div class="sb-brand-text">'
-            '<b>AI TRAFFIC VISION</b>'
-            '<small>Giám sát giao thông thông minh</small>'
-            '</div>'
-        )
+    st.image("assets/logo.png", width=200)
+    render_html(
+        '<div class="sb-brand-text">'
+        '<b>AI TRAFFIC VISION</b>'
+        '<small>Giám sát giao thông thông minh</small>'
+        '</div>'
+    )
 
     st.markdown(
         '<div class="sb-brand-divider"></div>',
