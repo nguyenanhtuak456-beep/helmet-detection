@@ -2527,6 +2527,19 @@ def render_video_progress():
         st.error(f"Xử lý video thất bại: {task['error']}")
         return
 
+    if task.get("done") and task.get("result") and not task.get("applied"):
+        result = task["result"]
+        st.session_state.processed_video_path = result["processed_video_path"]
+        st.session_state.stats = result["stats"]
+        st.session_state.recent_detections = result["recent_detections"]
+        st.session_state.saved_drive_path = result.get("saved_drive_path")
+        run_cfg = dict(task.get("run_config") or {})
+        run_cfg["elapsed"] = task.get("elapsed", 0.0)
+        run_cfg["finished_at"] = datetime.now().strftime("%H:%M:%S %d/%m/%Y")
+        st.session_state.run_config = run_cfg
+        task["applied"] = True
+        st.rerun()
+
     if task.get("done"):
         st.progress(1.0 if task.get("status") == "done" else fraction)
         if task.get("status") == "done":
@@ -2553,6 +2566,11 @@ def render_video_progress():
             else:
                 pause_event.set()
             st.rerun()
+
+
+if hasattr(st, "fragment"):
+    render_video_progress = st.fragment(run_every=0.5)(render_video_progress)
+    _render_video_status = st.fragment(run_every=0.5)(_render_video_status)
 
 
 def render_history_mode(device_label):
