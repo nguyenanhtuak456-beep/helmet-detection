@@ -2002,7 +2002,83 @@ div[class*="st-key-control_panel"] .card-title { padding-bottom: 10px; border-bo
 }
 .sb-brand-text b { font-size: 18px !important; letter-spacing: -.2px !important; }
 .sb-brand-text small { font-size: 12px !important; margin-top: 4px !important; }
-.sb-brand-divider { margin: 16px 0 6px !important; }
+
+/* ================================================================
+   13. TYPOGRAPHY POLISH — chữ rõ, đẹp và đồng nhất
+   Đổi phông chỉ cần sửa biến --font bên dưới, ví dụ:
+   'Be Vietnam Pro' (thiết kế riêng cho tiếng Việt), 'Nunito Sans', 'Roboto'.
+   Nếu đổi phông, nhớ đổi cả tên trong dòng @import ở đầu APP_CSS.
+   ================================================================ */
+:root {
+  --font: 'Inter', 'Be Vietnam Pro', 'Segoe UI', Roboto, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* Ép phông lên toàn bộ chữ của Streamlit (trừ icon Material, JSON, code) */
+html, body, .stApp { font-family: var(--font) !important; }
+.stApp :is(p, span, div, label, button, input, textarea, select, li, td, th, summary,
+           small, b, strong, em, a, h1, h2, h3, h4, h5, h6):not([data-testid="stIconMaterial"]):not([data-testid="stJson"] *):not([data-testid="stCode"] *) {
+  font-family: var(--font) !important;
+}
+
+/* Hiển thị chữ sắc nét, giãn dòng thoáng cho dấu tiếng Việt */
+html, body, .stApp {
+  font-size: 15px !important;
+  line-height: 1.6 !important;
+  font-feature-settings: "kern", "liga", "calt";
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+[data-testid="stMarkdownContainer"] p { line-height: 1.6 !important; }
+
+/* Tiêu đề: đậm vừa phải; chữ HOA tiếng Việt không bóp khoảng cách để dấu không dính nhau */
+.stApp h1, .stApp h2, .stApp h3, .stApp h4 {
+  font-weight: 750 !important;
+  line-height: 1.35 !important;
+  letter-spacing: 0.005em !important;
+  color: #eaf7ff !important;
+}
+.stApp h2 { font-size: 1.55rem !important; }
+.stApp h3 { font-size: 1.25rem !important; }
+.stApp h2 a, .stApp h3 a { display: none !important; }
+
+/* Chữ phụ (caption, nhãn) đủ tương phản trên nền tối */
+[data-testid="stCaptionContainer"], .stCaption {
+  color: #9db6c9 !important;
+  font-size: 12.5px !important;
+  line-height: 1.5 !important;
+}
+[data-testid="stWidgetLabel"] p, label { letter-spacing: 0.005em; }
+
+/* Nút bấm */
+.stButton > button, .stDownloadButton > button {
+  font-weight: 600 !important;
+  letter-spacing: 0.01em !important;
+}
+.stButton > button p, .stDownloadButton > button p { line-height: 1.3 !important; }
+
+/* Thẻ lịch sử */
+.h-title { font-size: 18px !important; font-weight: 750 !important; letter-spacing: 0 !important; line-height: 1.4 !important; }
+.h-time { font-size: 13px !important; color: #9bbad0 !important; }
+.h-tile-l { font-size: 11.5px !important; letter-spacing: 0.08em !important; color: #c2d6e5 !important; }
+.chip { font-size: 12.5px !important; font-weight: 600 !important; letter-spacing: 0.005em; }
+
+/* Thẻ KPI: số đồng đều, nhãn rõ */
+.sk-title, .kpi .k-label { letter-spacing: 0.07em !important; line-height: 1.35 !important; }
+.sk-val, .kpi .k-value, .h-tile-v, .donut-pct {
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: "tnum", "lnum", "kern";
+}
+.sk-sub, .kpi .k-note { font-size: 12.5px !important; line-height: 1.45 !important; }
+
+/* Thanh bên */
+.sb-section { letter-spacing: 0.12em !important; font-size: 11px !important; }
+[data-testid="stSidebar"] .stButton > button { font-size: 14px !important; }
+.sb-system-meta { font-size: 11.5px !important; line-height: 1.6 !important; }
+
+/* Tiêu đề thẻ/khung */
+.card-title, .pn-head h3 { font-size: 16px !important; letter-spacing: 0 !important; line-height: 1.4 !important; }
+.pn-head small { font-size: 12px !important; }
 """
 
 
