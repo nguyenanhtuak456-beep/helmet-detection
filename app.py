@@ -1745,6 +1745,59 @@ hr { border-color: #294258 !important; }
   .kpi-grid { grid-template-columns: 1fr; }
   .atv-footer { flex-direction: column; align-items: flex-start; }
 }
+
+/* ================================================================
+   POLISH LAYER v2 - chỉ chỉnh giao diện, không đụng logic suy luận
+   ================================================================ */
+/* 1. Logo/tên app ở sidebar: chữ đang giữ màu tối trên nền tối */
+.sb-brand-text b { color: #effbff !important; -webkit-text-fill-color: #effbff !important; background: none !important; }
+.sb-brand-text small { color: #8ba3b8 !important; -webkit-text-fill-color: #8ba3b8 !important; }
+.sb-brand-divider { background: #20384e !important; border-color: #20384e !important; }
+[data-testid="stSidebar"] [data-testid="stImage"] img {
+  border-radius: 12px; box-shadow: 0 0 0 1px rgba(34,211,238,.25), 0 0 22px rgba(34,211,238,.14);
+}
+
+/* 2. Khối trắng chói (trạng thái trống) -> tối, nét đứt */
+.empty {
+  background: linear-gradient(180deg, rgba(20,36,56,.78), rgba(16,29,45,.55)) !important;
+  border: 1.5px dashed var(--line-strong) !important;
+  border-radius: 14px !important;
+  color: var(--muted) !important;
+}
+.empty b { color: var(--text) !important; }
+
+/* 3. Việt hóa nút Upload và dòng giới hạn của Streamlit */
+[data-testid="stFileUploader"] button p { font-size: 0 !important; line-height: 0 !important; }
+[data-testid="stFileUploader"] button p::after {
+  content: "Chọn tệp"; font-size: 13px !important; line-height: 1.2 !important; letter-spacing: .2px;
+}
+[data-testid="stFileUploaderDropzoneInstructions"] small { font-size: 0 !important; }
+[data-testid="stFileUploaderDropzoneInstructions"] small::after {
+  content: "Tối đa 100MB mỗi tệp"; font-size: 12.5px !important; color: #a9c1d2;
+}
+div[class*="st-key-dashboard_video_upload"] [data-testid="stFileUploaderDropzoneInstructions"] small::after {
+  content: "Tối đa 100MB · MP4, AVI, MOV, M4V";
+}
+div[class*="st-key-image_uploader"] [data-testid="stFileUploaderDropzoneInstructions"] small::after {
+  content: "Tối đa 100MB · JPG, PNG, BMP, WEBP";
+}
+
+/* 4. Icon KPI dạng SVG thay emoji, số liệu thẳng hàng */
+.sk-ico svg { width: 18px; height: 18px; display: block; }
+.sk-val, .kpi .k-value { font-variant-numeric: tabular-nums; letter-spacing: -.5px; }
+.sk-val.is-empty { color: #5f7a90 !important; }
+
+/* 5. Chuyển động nhẹ, focus rõ, thanh cuộn đồng bộ tông */
+.smart-kpi, .kpi, .atv-footer, [data-testid="stSidebar"] .stButton > button {
+  transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease, background .18s ease;
+}
+.smart-kpi:hover { transform: translateY(-2px); }
+button:focus-visible, [data-baseweb] :focus-visible { outline: 2px solid #22d3ee !important; outline-offset: 2px; }
+::selection { background: rgba(34,211,238,.28); }
+* { scrollbar-width: thin; scrollbar-color: #31516b transparent; }
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { background: #31516b; border-radius: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
 """
 
 
@@ -1847,6 +1900,7 @@ ICONS = {
     "alert": '<path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/>',
     "target": '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/>',
     "chart": '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+    "bolt": '<path d="M13 2L4 14h7l-1 8 9-12h-7z"/>',
 }
 
 
@@ -2427,6 +2481,9 @@ def render_video_progress():
     if task.get("done"):
         st.progress(1.0 if task.get("status") == "done" else fraction)
         if task.get("status") == "done":
+            if not task.get("toasted"):
+                task["toasted"] = True
+                st.toast("Đã xử lý xong video", icon=":material/check_circle:")
             st.success("Đã xử lý video hoàn tất.")
         return
 
@@ -2929,13 +2986,18 @@ viol_sub = f"Tỷ lệ vi phạm: {viol_rate_pct:.1f}%" if total_heads > 0 else 
 fps_sub = device_label
 
 smart_kpis = [
-    ("TỔNG XE MÁY", f"{stats['motorbike']}", "", bike_sub, "🛵", "#2563eb", "#eff6ff", "#2563eb", ""),
-    ("ĐỘI MŨ BẢO HIỂM", f"{stats['helmet']}", "", helmet_sub, "⛑", "#0d9488", "#f0fdfa", "#0d9488", ""),
-    ("KHÔNG ĐỘI MŨ (VI PHẠM)", f"{stats['no_helmet']}", "", viol_sub, "⚠", "#ef4444", "#fef2f2", "#dc2626", "danger"),
-    ("TỐC ĐỘ XỬ LÝ", f"{fps_value:.1f}", "FPS", fps_sub, "⚡", "#10b981", "#ecfdf5", "#64748b", ""),
+    ("TỔNG XE MÁY", f"{stats['motorbike']}", "", bike_sub, icon("bike", 18), "#2563eb", "#eff6ff", "#2563eb", ""),
+    ("ĐỘI MŨ BẢO HIỂM", f"{stats['helmet']}", "", helmet_sub, icon("shield", 18), "#0d9488", "#f0fdfa", "#0d9488", ""),
+    ("KHÔNG ĐỘI MŨ (VI PHẠM)", f"{stats['no_helmet']}", "", viol_sub, icon("alert", 18), "#ef4444", "#fef2f2", "#dc2626", "danger"),
+    ("TỐC ĐỘ XỬ LÝ", f"{fps_value:.1f}", "FPS", fps_sub, icon("bolt", 18), "#10b981", "#ecfdf5", "#64748b", ""),
 ]
 
 st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+if st.session_state.stats is None:
+    smart_kpis = [
+        (t, "—", "", s, i, a, tn, sc, ex)
+        for (t, _v, _u, s, i, a, tn, sc, ex) in smart_kpis
+    ]
 kpi_cols = st.columns(4, gap="medium")
 for col, (title_txt, val_txt, unit_txt, sub_txt, ico_txt, accent_c, tint_c, sub_c, extra_cls) in zip(kpi_cols, smart_kpis):
     unit_html = f"<small>{unit_txt}</small>" if unit_txt else ""
@@ -2959,9 +3021,9 @@ stats = st.session_state.stats
 with st.container():
     with panel("timeline_panel"):
         render_html(
-            '<div class="card-title"><span>▥  Thống kê theo thời gian</span>'
-            '<span class="chart-legend"><span><i style="background:#0d9488"></i>Đội mũ</span>'
-            '<span><i style="background:#ef4444"></i>Không đội mũ</span></span></div>'
+            '<div class="card-title"><span>Thống kê theo thời gian</span>'
+            '<span class="chart-legend"><span><i style="background:#2dd4bf"></i>Đội mũ</span>'
+            '<span><i style="background:#fb7185"></i>Không đội mũ</span></span></div>'
         )
         if stats and stats.get("timeline"):
             times = sorted(stats["timeline"].keys())
@@ -2974,7 +3036,7 @@ with st.container():
             with chart_col:
                 if alt is not None:
                     long_df = chart_df.melt("Thời gian (giây)", var_name="Loại", value_name="Số lượng")
-                    color_scale = alt.Scale(domain=["Đội mũ", "Không đội mũ"], range=["#0d9488", "#ef4444"])
+                    color_scale = alt.Scale(domain=["Đội mũ", "Không đội mũ"], range=["#2dd4bf", "#fb7185"])
                     base = alt.Chart(long_df).encode(
                         x=alt.X("Thời gian (giây):Q", title="Giây", axis=alt.Axis(tickMinStep=1, format="d")),
                         y=alt.Y("Số lượng:Q", title="Số người", axis=alt.Axis(tickMinStep=1, format="d")),
@@ -2997,16 +3059,16 @@ with st.container():
                         "Nhóm": ["Đội mũ", "Không đội mũ"],
                         "Số lượng": [h_cnt, nh_cnt],
                     })
-                    d_scale = alt.Scale(domain=["Đội mũ", "Không đội mũ"], range=["#0d9488", "#ef4444"])
+                    d_scale = alt.Scale(domain=["Đội mũ", "Không đội mũ"], range=["#2dd4bf", "#fb7185"])
                     arc = alt.Chart(donut_df).mark_arc(
-                        innerRadius=44, outerRadius=68, stroke="#ffffff", strokeWidth=2
+                        innerRadius=44, outerRadius=68, stroke="#101d2d", strokeWidth=3
                     ).encode(
                         theta=alt.Theta("Số lượng:Q"),
                         color=alt.Color("Nhóm:N", scale=d_scale, legend=None),
                         tooltip=["Nhóm", "Số lượng"],
                     )
                     center_txt = alt.Chart(pd.DataFrame({"t": [f"{rate_val:.1f}%"]})).mark_text(
-                        size=16, fontWeight="bold", color="#0f172a"
+                        size=16, fontWeight="bold", color="#eafaff"
                     ).encode(text="t:N")
                     show_altair((arc + center_txt).properties(height=165))
                     render_html(
