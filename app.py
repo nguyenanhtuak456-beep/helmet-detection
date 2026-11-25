@@ -1836,6 +1836,17 @@ header[data-testid="stHeader"] * { pointer-events: none !important; }
 .live-pill.active { background: rgba(251,113,133,.12) !important; border-color: rgba(251,113,133,.38) !important; color: #fda4af !important; }
 .live-pill.paused { background: rgba(251,191,36,.12) !important; border-color: rgba(251,191,36,.35) !important; color: #fcd34d !important; }
 .live-pill.done { background: rgba(52,211,153,.12) !important; border-color: rgba(52,211,153,.35) !important; color: #6ee7b7 !important; }
+
+/* 8. Sidebar luôn mở trên máy tính: CSS gốc ép width 274px nên trạng thái thu gọn của Streamlit bị lỗi.
+   Bỏ nút thu gọn và vô hiệu hóa trạng thái đã thu gọn. Trên màn hình nhỏ vẫn để Streamlit tự xử lý. */
+@media (min-width: 992px) {
+  [data-testid="stSidebarCollapseButton"],
+  [data-testid="stSidebarHeader"] button { display: none !important; }
+  [data-testid="stSidebar"], [data-testid="stSidebar"][aria-expanded="false"] {
+    transform: none !important; margin-left: 0 !important; left: 0 !important;
+    visibility: visible !important; opacity: 1 !important;
+  }
+}
 """
 
 
