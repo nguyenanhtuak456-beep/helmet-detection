@@ -2614,6 +2614,132 @@ def render_video_progress():
         _render_video_progress_inner()
 
 
+def _normalize_timeline(raw):
+    """Timeline lưu trong DB (JSON) có khóa dạng chuỗi '0','1',...; chuyển về số nguyên."""
+    out = {}
+    for k, v in (raw or {}).items():
+        try:
+            out[int(k)] = int(v)
+        except (TypeError, ValueError):
+            continue
+    return dict(sorted(out.items()))
+
+
+def render_smart_kpis(stats, fps_value, device_label):
+    """Bốn thẻ KPI giống dashboard chính (dùng cho trang lịch sử)."""
+    stats = stats or {}
+    n_bike = int(stats.get("motorbike", 0))
+    n_helmet = int(stats.get("helmet", 0))
+    n_no = int(stats.get("no_helmet", 0))
+    avg_conf = float(stats.get("avg_conf", 0.0) or 0.0)
+
+    total_heads = n_helmet + n_no
+    helmet_rate = (n_helmet / total_heads * 100.0) if total_heads > 0 else 0.0
+    viol_rate = (n_no / total_heads * 100.0) if total_heads > 0 else 0.0
+
+    bike_sub = f"Độ tin cậy TB: {avg_conf:.1f}%" if avg_conf > 0 else "Phương tiện theo dõi"
+    helmet_sub = f"Tỷ lệ tuân thủ: {helmet_rate:.1f}%" if total_heads > 0 else "Chưa có dữ liệu"
+    viol_sub = f"Tỷ lệ vi phạm: {viol_rate:.1f}%" if total_heads > 0 else "Chưa ghi nhận vi phạm"
+
+    cards = [
+        ("TỔNG XE MÁY", f"{n_bike}", "", bike_sub, icon("bike", 18), "#2563eb", "#eff6ff", "#2563eb", ""),
+        ("ĐỘI MŨ BẢO HIỂM", f"{n_helmet}", "", helmet_sub, icon("shield", 18), "#0d9488", "#f0fdfa", "#0d9488", ""),
+        ("KHÔNG ĐỘI MŨ (VI PHẠM)", f"{n_no}", "", viol_sub, icon("alert", 18), "#ef4444", "#fef2f2", "#dc2626", "danger"),
+        ("TỐC ĐỘ XỬ LÝ", f"{fps_value:.1f}", "FPS", device_label, icon("bolt", 18), "#10b981", "#ecfdf5", "#64748b", ""),
+    ]
+    cols = st.columns(4, gap="medium")
+    for col, (title_txt, val_txt, unit_txt, sub_txt, ico_txt, accent_c, tint_c, sub_c, extra_cls) in zip(cols, cards):
+        unit_html = f"<small>{unit_txt}</small>" if unit_txt else ""
+        with col:
+            render_html(
+                f"""
+                <div class="smart-kpi {extra_cls}" style="--accent:{accent_c};--tint:{tint_c};--sub-color:{sub_c}">
+                  <div class="sk-top">
+                    <span class="sk-title">{title_txt}</span>
+                    <span class="sk-ico">{ico_txt}</span>
+                  </div>
+                  <div class="sk-val">{val_txt}{unit_html}</div>
+                  <div class="sk-sub">{html_lib.escape(str(sub_txt))}</div>
+                </div>
+                """
+            )
+
+
+def render_timeline_panel(stats, panel_key):
+    """Biểu đồ theo thời gian + donut tỷ lệ tuân thủ (dùng cho trang lịch sử)."""
+    stats = stats or {}
+    violation_tl = _normalize_timeline(stats.get("timeline"))
+    helmet_tl = _normalize_timeline(stats.get("helmet_timeline"))
+
+    with panel(panel_key):
+        render_html(
+            '<div class="card-title"><span>Thống kê theo thời gian</span>'
+            '<span class="chart-legend"><span><i style="background:#2dd4bf"></i>Đội mũ</span>'
+            '<span><i style="background:#fb7185"></i>Không đội mũ</span></span></div>'
+        )
+        if not violation_tl:
+            render_html('<div class="empty" style="min-height:210px"><b>Chưa có dữ liệu thống kê</b>'
+                        'Bản ghi này không có dữ liệu theo thời gian.</div>')
+            return
+
+        times = sorted(set(violation_tl) | set(helmet_tl))
+        chart_df = pd.DataFrame({
+            "Thời gian (giây)": times,
+            "Đội mũ": [helmet_tl.get(t, 0) for t in times],
+            "Không đội mũ": [violation_tl.get(t, 0) for t in times],
+        })
+        chart_col, donut_col = st.columns([1.95, 1], gap="small")
+        with chart_col:
+            if alt is not None:
+                long_df = chart_df.melt("Thời gian (giây)", var_name="Loại", value_name="Số lượng")
+                color_scale = alt.Scale(domain=["Đội mũ", "Không đội mũ"], range=["#2dd4bf", "#fb7185"])
+                base = alt.Chart(long_df).encode(
+                    x=alt.X("Thời gian (giây):Q", title="Giây", axis=alt.Axis(tickMinStep=1, format="d")),
+                    y=alt.Y("Số lượng:Q", title="Số người", axis=alt.Axis(tickMinStep=1, format="d")),
+                    color=alt.Color("Loại:N", scale=color_scale, legend=None),
+                    tooltip=["Thời gian (giây)", "Loại", "Số lượng"],
+                )
+                area = base.mark_area(opacity=0.14)
+                line = base.mark_line(point=alt.OverlayMarkDef(size=36, filled=True), strokeWidth=2.5)
+                show_altair((area + line).properties(height=210))
+            else:
+                st.line_chart(chart_df.set_index("Thời gian (giây)"))
+
+        with donut_col:
+            h_cnt = int(stats.get("helmet", 0))
+            nh_cnt = int(stats.get("no_helmet", 0))
+            tot_cnt = h_cnt + nh_cnt
+            rate_val = (h_cnt / tot_cnt * 100.0) if tot_cnt > 0 else 0.0
+            if alt is not None and tot_cnt > 0:
+                donut_df = pd.DataFrame({
+                    "Nhóm": ["Đội mũ", "Không đội mũ"],
+                    "Số lượng": [h_cnt, nh_cnt],
+                })
+                d_scale = alt.Scale(domain=["Đội mũ", "Không đội mũ"], range=["#2dd4bf", "#fb7185"])
+                arc = alt.Chart(donut_df).mark_arc(
+                    innerRadius=44, outerRadius=68, stroke="#101d2d", strokeWidth=3
+                ).encode(
+                    theta=alt.Theta("Số lượng:Q"),
+                    color=alt.Color("Nhóm:N", scale=d_scale, legend=None),
+                    tooltip=["Nhóm", "Số lượng"],
+                )
+                center_txt = alt.Chart(pd.DataFrame({"t": [f"{rate_val:.1f}%"]})).mark_text(
+                    size=16, fontWeight="bold", color="#eafaff"
+                ).encode(text="t:N")
+                show_altair((arc + center_txt).properties(height=165))
+                render_html(
+                    f'<div style="text-align:center;margin-top:-6px">'
+                    f'<div class="donut-cap">Tỷ lệ tuân thủ</div>'
+                    f'<div class="donut-pct">{rate_val:.1f}%</div></div>'
+                )
+            else:
+                render_html(
+                    '<div class="donut-box" style="min-height:200px;display:flex;flex-direction:column;justify-content:center">'
+                    '<div class="donut-cap">Tỷ lệ tuân thủ</div>'
+                    '<div class="donut-pct">—</div></div>'
+                )
+
+
 def render_history_mode(device_label):
     st.markdown("## LỊCH SỬ PHÂN TÍCH")
     st.caption("Quản lý các video đã được AI phân tích.")
@@ -2673,22 +2799,50 @@ def render_history_mode(device_label):
         if selected:
             st.divider()
             st.markdown("### CHI TIẾT PHÂN TÍCH")
+            st.markdown(f"**{selected['video_name']}**")
+            st.caption(f"Thời gian: {selected['created_at']}")
 
-            st.write("Tên video:", selected["video_name"])
-            st.write("Thời gian:", selected["created_at"])
+            sel_stats = selected.get("stats") or {}
+            sel_cfg = selected.get("config") or {}
 
-            st.markdown("#### Thống kê nhận diện")
-            st.json(selected.get("stats", {}))
+            # Tốc độ xử lý = tổng số khung hình / thời gian xử lý
+            frames = int((sel_cfg.get("video") or {}).get("frames", 0) or 0)
+            sel_elapsed = selected.get("elapsed")
+            if not sel_elapsed:
+                sel_elapsed = next(
+                    (i.get("elapsed") for i in history_items if i["id"] == selected_id), 0.0
+                ) or sel_cfg.get("elapsed", 0.0)
+            sel_elapsed = float(sel_elapsed or 0.0)
+            fps_value = (frames / sel_elapsed) if sel_elapsed > 0 else 0.0
 
-            st.markdown("#### Cấu hình phân tích")
-            st.json(selected.get("config", {}))
+            st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+            render_smart_kpis(sel_stats, fps_value, device_label)
 
+            st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+            render_timeline_panel(sel_stats, "timeline_panel_history")
+
+            st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
             video_path = selected.get("result_video_path")
+            with panel("panel_history_video"):
+                render_html('<div class="card-title"><span>◉  Video kết quả</span></div>')
+                if video_path and os.path.exists(video_path):
+                    st.video(video_path)
+                else:
+                    st.warning("Không tìm thấy video kết quả.")
 
-            if video_path and os.path.exists(video_path):
-                st.video(video_path)
-            else:
-                st.warning("Không tìm thấy video kết quả.")
+            with st.expander("Xem bảng dữ liệu chi tiết & cấu hình phân tích", expanded=False):
+                v_tl = _normalize_timeline(sel_stats.get("timeline"))
+                h_tl = _normalize_timeline(sel_stats.get("helmet_timeline"))
+                times = sorted(set(v_tl) | set(h_tl))
+                detail_col, cfg_col = st.columns([1.25, 1], gap="large")
+                with detail_col:
+                    show_table(pd.DataFrame({
+                        "Thời gian (giây)": times,
+                        "Đội mũ": [h_tl.get(t, 0) for t in times],
+                        "Không đội mũ": [v_tl.get(t, 0) for t in times],
+                    }))
+                with cfg_col:
+                    st.json(sel_cfg)
 
             if st.button("Đóng chi tiết", key="hbtn_close_detail"):
                 st.session_state.pop("selected_history_id", None)
