@@ -2284,6 +2284,52 @@ def encode_jpg(bgr):
     return buf.tobytes() if ok else b""
 
 
+HISTORY_MEDIA_DIR = Path(__file__).resolve().parent / "history_media"
+
+
+def save_image_history(name, original_bytes, annotated_bytes, counts, params, elapsed):
+    """Lưu ảnh gốc + ảnh kết quả ra đĩa và ghi một bản ghi vào lịch sử."""
+    try:
+        HISTORY_MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+        uid = uuid.uuid4().hex[:12]
+        ext = Path(name).suffix or ".jpg"
+        orig_path = HISTORY_MEDIA_DIR / f"{uid}_original{ext}"
+        ann_path = HISTORY_MEDIA_DIR / f"{uid}_detected.jpg"
+        orig_path.write_bytes(original_bytes)
+        ann_path.write_bytes(annotated_bytes)
+
+        stats = {
+            "motorbike": int(counts.get("motorbike", 0)),
+            "helmet": int(counts.get("helmet", 0)),
+            "no_helmet": int(counts.get("no_helmet", 0)),
+            "avg_conf": float(counts.get("avg_conf", 0.0)),
+            "timeline": {},
+            "helmet_timeline": {},
+        }
+        config = dict(params)
+        config.update({
+            "media_type": "image",
+            "file_name": name,
+            "original_path": str(orig_path),
+            "annotated_path": str(ann_path),
+            "elapsed": float(elapsed),
+            "finished_at": datetime.now().strftime("%H:%M:%S %d/%m/%Y"),
+        })
+        add_history(
+            video_name=f"[Ảnh] {name}",
+            source_video_path=str(orig_path),
+            result_video_path=str(ann_path),
+            stats=stats,
+            config=config,
+            recent_detections=[],
+            elapsed=float(elapsed),
+        )
+        return True
+    except Exception as exc:
+        print(f"[history] Không lưu được lịch sử ảnh: {exc}")
+        return False
+
+
 def render_image_mode(model_path, model_exists, params):
     section_title("Nhận diện hình ảnh")
 
@@ -2318,11 +2364,15 @@ def render_image_mode(model_path, model_exists, params):
                         if bgr is None:
                             out.append({"name": f.name, "error": True})
                         else:
+                            t0 = time.perf_counter()
                             vis, counts = analyze_still(model_path, bgr, params)
+                            elapsed_img = time.perf_counter() - t0
+                            annotated = encode_jpg(vis)
                             out.append({
                                 "name": f.name, "error": False, "original": data,
-                                "annotated": encode_jpg(vis), "counts": counts,
+                                "annotated": annotated, "counts": counts,
                             })
+                            save_image_history(f.name, data, annotated, counts, params, elapsed_img)
                         progress.progress((i + 1) / len(files))
                     st.session_state.image_results = out
         else:
@@ -2625,7 +2675,7 @@ def _normalize_timeline(raw):
     return dict(sorted(out.items()))
 
 
-def render_smart_kpis(stats, fps_value, device_label):
+def render_smart_kpis(stats, fps_value, device_label, is_image=False, elapsed=0.0):
     """Bốn thẻ KPI giống dashboard chính (dùng cho trang lịch sử)."""
     stats = stats or {}
     n_bike = int(stats.get("motorbike", 0))
@@ -2645,7 +2695,9 @@ def render_smart_kpis(stats, fps_value, device_label):
         ("TỔNG XE MÁY", f"{n_bike}", "", bike_sub, icon("bike", 18), "#2563eb", "#eff6ff", "#2563eb", ""),
         ("ĐỘI MŨ BẢO HIỂM", f"{n_helmet}", "", helmet_sub, icon("shield", 18), "#0d9488", "#f0fdfa", "#0d9488", ""),
         ("KHÔNG ĐỘI MŨ (VI PHẠM)", f"{n_no}", "", viol_sub, icon("alert", 18), "#ef4444", "#fef2f2", "#dc2626", "danger"),
-        ("TỐC ĐỘ XỬ LÝ", f"{fps_value:.1f}", "FPS", device_label, icon("bolt", 18), "#10b981", "#ecfdf5", "#64748b", ""),
+        (("THỜI GIAN XỬ LÝ", f"{elapsed:.2f}", "giây", device_label, icon("bolt", 18), "#10b981", "#ecfdf5", "#64748b", "")
+         if is_image else
+         ("TỐC ĐỘ XỬ LÝ", f"{fps_value:.1f}", "FPS", device_label, icon("bolt", 18), "#10b981", "#ecfdf5", "#64748b", "")),
     ]
     cols = st.columns(4, gap="medium")
     for col, (title_txt, val_txt, unit_txt, sub_txt, ico_txt, accent_c, tint_c, sub_c, extra_cls) in zip(cols, cards):
@@ -2815,34 +2867,66 @@ def render_history_mode(device_label):
             sel_elapsed = float(sel_elapsed or 0.0)
             fps_value = (frames / sel_elapsed) if sel_elapsed > 0 else 0.0
 
+            is_image = sel_cfg.get("media_type") == "image"
+
             st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
-            render_smart_kpis(sel_stats, fps_value, device_label)
+            render_smart_kpis(sel_stats, fps_value, device_label,
+                              is_image=is_image, elapsed=sel_elapsed)
 
-            st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
-            render_timeline_panel(sel_stats, "timeline_panel_history")
+            if is_image:
+                ann_path = sel_cfg.get("annotated_path") or selected.get("result_video_path")
+                orig_path = sel_cfg.get("original_path") or selected.get("source_video_path")
+                st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+                with panel("panel_history_image"):
+                    render_html('<div class="card-title"><span>◉  Kết quả nhận diện ảnh</span></div>')
+                    img_c1, img_c2 = st.columns(2, gap="large")
+                    with img_c1:
+                        st.caption("Ảnh ban đầu")
+                        if orig_path and os.path.exists(orig_path):
+                            show_image(orig_path)
+                        else:
+                            st.warning("Không tìm thấy ảnh gốc.")
+                    with img_c2:
+                        st.caption("Kết quả nhận diện")
+                        if ann_path and os.path.exists(ann_path):
+                            show_image(ann_path)
+                            with open(ann_path, "rb") as fh:
+                                st.download_button(
+                                    "⬇️ Tải ảnh kết quả (.jpg)", data=fh.read(),
+                                    file_name="history_detected.jpg", mime="image/jpeg",
+                                    key=f"hbtn_dl_img_{selected_id}",
+                                )
+                        else:
+                            st.warning("Không tìm thấy ảnh kết quả.")
+            else:
+                st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+                render_timeline_panel(sel_stats, "timeline_panel_history")
 
-            st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
-            video_path = selected.get("result_video_path")
-            with panel("panel_history_video"):
-                render_html('<div class="card-title"><span>◉  Video kết quả</span></div>')
-                if video_path and os.path.exists(video_path):
-                    st.video(video_path)
-                else:
-                    st.warning("Không tìm thấy video kết quả.")
+                st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+                video_path = selected.get("result_video_path")
+                with panel("panel_history_video"):
+                    render_html('<div class="card-title"><span>◉  Video kết quả</span></div>')
+                    if video_path and os.path.exists(video_path):
+                        st.video(video_path)
+                    else:
+                        st.warning("Không tìm thấy video kết quả.")
 
             with st.expander("Xem bảng dữ liệu chi tiết & cấu hình phân tích", expanded=False):
-                v_tl = _normalize_timeline(sel_stats.get("timeline"))
-                h_tl = _normalize_timeline(sel_stats.get("helmet_timeline"))
-                times = sorted(set(v_tl) | set(h_tl))
-                detail_col, cfg_col = st.columns([1.25, 1], gap="large")
-                with detail_col:
-                    show_table(pd.DataFrame({
-                        "Thời gian (giây)": times,
-                        "Đội mũ": [h_tl.get(t, 0) for t in times],
-                        "Không đội mũ": [v_tl.get(t, 0) for t in times],
-                    }))
-                with cfg_col:
+                if is_image:
                     st.json(sel_cfg)
+                else:
+                    v_tl = _normalize_timeline(sel_stats.get("timeline"))
+                    h_tl = _normalize_timeline(sel_stats.get("helmet_timeline"))
+                    times = sorted(set(v_tl) | set(h_tl))
+                    detail_col, cfg_col = st.columns([1.25, 1], gap="large")
+                    with detail_col:
+                        show_table(pd.DataFrame({
+                            "Thời gian (giây)": times,
+                            "Đội mũ": [h_tl.get(t, 0) for t in times],
+                            "Không đội mũ": [v_tl.get(t, 0) for t in times],
+                        }))
+                    with cfg_col:
+                        st.json(sel_cfg)
 
             if st.button("Đóng chi tiết", key="hbtn_close_detail"):
                 st.session_state.pop("selected_history_id", None)
