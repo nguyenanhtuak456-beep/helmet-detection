@@ -2989,21 +2989,10 @@ def render_history_detail(selected_id, history_items, device_label):
     sel_stats = selected.get("stats") or {}
     sel_cfg = selected.get("config") or {}
 
-    # Tốc độ xử lý = tổng số khung hình / thời gian xử lý
-    frames = int((sel_cfg.get("video") or {}).get("frames", 0) or 0)
-    sel_elapsed = selected.get("elapsed")
-    if not sel_elapsed:
-        sel_elapsed = next(
-            (i.get("elapsed") for i in history_items if i["id"] == selected_id), 0.0
-        ) or sel_cfg.get("elapsed", 0.0)
-    sel_elapsed = float(sel_elapsed or 0.0)
-    fps_value = (frames / sel_elapsed) if sel_elapsed > 0 else 0.0
-
     is_image = sel_cfg.get("media_type") == "image"
 
+    # Các chỉ số tổng quan đã hiển thị ở thẻ phía trên nên không lặp lại ở đây.
     st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
-    render_smart_kpis(sel_stats, fps_value, device_label,
-                      is_image=is_image, elapsed=sel_elapsed)
 
     if is_image:
         ann_path = sel_cfg.get("annotated_path") or selected.get("result_video_path")
