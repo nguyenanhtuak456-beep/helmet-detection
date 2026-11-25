@@ -1918,6 +1918,75 @@ div[class*="st-key-hcard_"]:hover {
 }
 .h-foot { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 @media (max-width: 760px) { .h-tiles { grid-template-columns: 1fr; } }
+
+/* 11. Trang phân tích video & ảnh: chỉ số nổi bật, phân ô rõ ràng */
+.kpi-section-label {
+  display: flex; align-items: center; gap: 10px; margin: 8px 0 12px;
+  font-size: 12px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; color: #7fb2c9;
+}
+.kpi-section-label::before {
+  content: ""; width: 4px; height: 16px; border-radius: 3px;
+  background: linear-gradient(180deg, #22d3ee, #0891b2);
+}
+.kpi-section-label::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, #2a4a61, transparent); }
+
+/* Màu nhấn sáng hơn cho nền tối (ghi đè biến inline của thẻ) */
+.smart-kpi[style*="--accent:#2563eb"] { --accent: #60a5fa !important; }
+.smart-kpi[style*="--accent:#0d9488"] { --accent: #2dd4bf !important; }
+.smart-kpi[style*="--accent:#ef4444"] { --accent: #fb7185 !important; }
+.smart-kpi[style*="--accent:#10b981"] { --accent: #34d399 !important; }
+
+.kpi-grid { gap: 16px !important; }
+.smart-kpi, .kpi {
+  position: relative; overflow: hidden;
+  min-height: 140px;
+  padding: 16px 20px 14px !important;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--accent) 16%, #14283b) 0%, #0f1d2e 72%) !important;
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, #2a465d) !important;
+  border-top: 4px solid var(--accent) !important;
+  border-radius: 16px !important;
+  box-shadow:
+    0 10px 26px rgba(0,0,0,.30),
+    0 0 30px color-mix(in srgb, var(--accent) 13%, transparent),
+    inset 0 1px rgba(255,255,255,.05) !important;
+}
+.smart-kpi:hover, .kpi:hover {
+  box-shadow:
+    0 14px 32px rgba(0,0,0,.38),
+    0 0 38px color-mix(in srgb, var(--accent) 24%, transparent),
+    inset 0 1px rgba(255,255,255,.06) !important;
+}
+.smart-kpi.danger {
+  background: linear-gradient(160deg, rgba(251,113,133,.24) 0%, #1b1626 76%) !important;
+  border-color: rgba(251,113,133,.55) !important;
+}
+
+.sk-top { margin-bottom: 10px !important; }
+.sk-title, .kpi .k-label { font-size: 12px !important; letter-spacing: .9px !important; color: #c8dcea !important; font-weight: 800 !important; }
+.sk-ico {
+  width: 42px !important; height: 42px !important; border-radius: 12px !important;
+  background: color-mix(in srgb, var(--accent) 20%, transparent) !important;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--accent) !important;
+}
+.sk-ico svg, .kpi .k-ico svg { width: 22px !important; height: 22px !important; }
+.sk-val, .kpi .k-value {
+  font-size: 44px !important; line-height: 1.05 !important; font-weight: 800 !important;
+  color: var(--accent) !important; letter-spacing: -1.2px !important;
+  text-shadow: 0 0 24px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.sk-val small, .kpi .k-unit { font-size: 15px !important; font-weight: 700 !important; color: #c8dcea !important; margin-left: 6px; text-shadow: none; }
+.sk-sub, .kpi .k-note {
+  margin-top: 10px !important; padding-top: 9px;
+  border-top: 1px dashed color-mix(in srgb, var(--accent) 30%, #2a465d);
+  font-size: 12px !important; font-weight: 650 !important; color: #b6cbda !important;
+}
+.kpi .k-vi { color: #9db6c7 !important; font-size: 11.5px !important; }
+
+/* Tiêu đề thẻ/khung có đường kẻ chia vùng */
+.pn-head { padding-bottom: 10px; border-bottom: 1px solid #254158; margin-bottom: 14px !important; }
+div[class*="st-key-timeline_panel"] .card-title { padding-bottom: 10px; border-bottom: 1px solid #254158; margin-bottom: 14px !important; }
+div[class*="st-key-control_panel"] .card-title { padding-bottom: 10px; border-bottom: 1px solid #254158; }
 """
 
 
@@ -2263,6 +2332,7 @@ def show_image(img):
 
 def render_kpi_row(c, container=None):
     html = (
+        '<div class="kpi-section-label">Chỉ số phân tích</div>'
         '<div class="kpi-grid">'
         + kpi_card("XE MÁY", "Tổng số xe được phát hiện", f"{c['motorbike']}", "xe",
                    c.get("note_bike", "Phát hiện được"), C_PURPLE, "bike")
@@ -3435,6 +3505,7 @@ if st.session_state.stats is None:
         (t, "—", "", s, i, a, tn, sc, ex)
         for (t, _v, _u, s, i, a, tn, sc, ex) in smart_kpis
     ]
+render_html('<div class="kpi-section-label">Chỉ số phân tích</div>')
 kpi_cols = st.columns(4, gap="medium")
 for col, (title_txt, val_txt, unit_txt, sub_txt, ico_txt, accent_c, tint_c, sub_c, extra_cls) in zip(kpi_cols, smart_kpis):
     unit_html = f"<small>{unit_txt}</small>" if unit_txt else ""
