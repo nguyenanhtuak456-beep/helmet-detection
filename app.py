@@ -65,6 +65,7 @@ except FileNotFoundError as e:
     MODEL_PATH_ERROR = str(e)
 
 # Ánh xạ ID lớp từ model.names {0: '0', 1: '1', 2: '2'}
+# LƯU Ý: phải khớp với thứ tự lớp trong data.yaml lúc huấn luyện.
 CLASS_ID_MAP = {
     0: "helmet",
     1: "motorbike",
@@ -80,6 +81,11 @@ LABEL_COLORS = {
 }
 
 BBOX_EMA_ALPHA = 0.12
+
+# Tốc độ xử lý mục tiêu (frame/giây). Giảm xuống 10 nếu vẫn chậm.
+TARGET_PROCESS_FPS = 15
+# Dùng GPU + FP16 khi có CUDA để tăng tốc suy luận.
+INFER_KW = {"device": 0, "half": True} if torch.cuda.is_available() else {}
 
 
 def normalize_detection_class(name, cls_id=None):
@@ -126,7 +132,7 @@ def display_overlay_name(name):
 
 
 class TrackBBoxSmoother:
-    """Làm mượt bbox sau ByteTrack cho TẤT CẢ lớp, gồm xe, helmet và no-helmet."""
+    """Làm mượt bbox sau tracking cho TẤT CẢ lớp, gồm xe, helmet và no-helmet."""
     def __init__(self, alpha=BBOX_EMA_ALPHA):
         self.alpha = float(np.clip(alpha, 0.05, 1.0))
         self.state = {}
@@ -323,7 +329,8 @@ def classify_head_track(votes, min_track_frames, no_helmet_min_frames=3):
 
 
 class HeadObjectTracker:
-    """Tracker riêng cho đầu/mũ, không phụ thuộc Track ID ByteTrack."""
+    """Tracker riêng (IoU + khoảng cách), không phụ thuộc Track ID của ByteTrack.
+    Dùng cho đầu/mũ và cũng dùng cho xe máy."""
     def __init__(self, max_age=12, bbox_alpha=BBOX_EMA_ALPHA, label_alpha=0.30):
         self.max_age = int(max_age)
         self.tracks = {}
@@ -466,6 +473,18 @@ class HeadObjectTracker:
         return output
 
 
+def track_motorbikes(bike_tracker, raw_bike_detections, conf_bike):
+    """Theo dõi xe máy bằng tracker riêng, trả về danh sách
+    (x1, y1, x2, y2, 'motorbike', conf, tid) — không phụ thuộc ID của ByteTrack."""
+    raw_bike_detections = suppress_duplicate_bike_boxes(raw_bike_detections, iou_threshold=0.60)
+    tracked = bike_tracker.update(raw_bike_detections, conf_bike, conf_bike)
+    return [
+        (bx1, by1, bx2, by2, "motorbike", bconf, btid)
+        for bx1, by1, bx2, by2, bcls, bconf, btid, _ in tracked
+        if bcls == "motorbike"
+    ]
+
+
 # =====================================================================
 # BẢNG MÀU GIAO DIỆN DARK CYAN
 # =====================================================================
@@ -545,7 +564,7 @@ def run_detection(
     model_override=None,
     only_violation_logs=False,
 ):
-    """Pipeline YOLOv8 + ByteTrack; hỗ trợ cập nhật tiến trình và tạm dừng an toàn giữa các frame."""
+    """Pipeline YOLOv8 + tracking; hỗ trợ cập nhật tiến trình và tạm dừng an toàn giữa các frame."""
     model = model_override if model_override is not None else load_yolo_model(model_path)
     if hasattr(model, "predictor") and model.predictor is not None:
         model.predictor = None
@@ -565,7 +584,8 @@ def run_detection(
     out_w = int(orig_w * scale) // 2 * 2
     out_h = int(orig_h * scale) // 2 * 2
 
-    frame_step = 2 if orig_fps > 35 else 1
+    # Chỉ suy luận ~TARGET_PROCESS_FPS khung hình/giây để tăng tốc.
+    frame_step = max(1, int(round(orig_fps / TARGET_PROCESS_FPS)))
     out_fps = orig_fps / frame_step
 
     output_temp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
@@ -584,11 +604,18 @@ def run_detection(
     sec_helmet_ids = defaultdict(set)
     sec_untracked_max = defaultdict(int)
     recent_events = []
+    saved_crop_keys = set()
 
     def remember_crop(image, box, label, confidence, track_id, second):
         try:
             if only_violation_logs and normalize_detection_class(label) != "no-helmet":
                 return
+            # Mỗi track chỉ lưu một ảnh crop để tránh encode JPEG liên tục.
+            if track_id is not None:
+                key = (normalize_detection_class(label), track_id)
+                if key in saved_crop_keys:
+                    return
+                saved_crop_keys.add(key)
             h, w = image.shape[:2]
             x1, y1, x2, y2 = [int(round(v)) for v in box]
             x1, x2 = max(0, min(x1, w - 1)), max(1, min(x2, w))
@@ -610,9 +637,9 @@ def run_detection(
     max_sec = 0
     frame_idx = 0
 
-    label_stabilizer = TrackLabelStabilizer(conf_alpha=ema_alpha)
-    bbox_smoother = TrackBBoxSmoother(BBOX_EMA_ALPHA)
+    # Tracker riêng cho cả đầu/mũ và xe máy (không phụ thuộc ID ByteTrack).
     head_tracker = HeadObjectTracker(max_age=12, bbox_alpha=BBOX_EMA_ALPHA, label_alpha=ema_alpha)
+    bike_tracker = HeadObjectTracker(max_age=15, bbox_alpha=BBOX_EMA_ALPHA, label_alpha=ema_alpha)
     use_tracking = True
 
     min_conf = min(conf_helmet, conf_no_helmet, conf_bike)
@@ -626,13 +653,16 @@ def run_detection(
             if progress_state is not None:
                 progress_state["status"] = "running"
 
+        # Frame bị bỏ qua chỉ grab (không giải mã đầy đủ) -> nhanh hơn read().
+        if frame_idx % frame_step != 0:
+            if not cap.grab():
+                break
+            frame_idx += 1
+            continue
+
         ret, frame = cap.read()
         if not ret:
             break
-
-        if frame_idx % frame_step != 0:
-            frame_idx += 1
-            continue
 
         if use_tracking:
             try:
@@ -644,9 +674,11 @@ def run_detection(
                     agnostic_nms=False,
                     tracker=custom_tracker_path,
                     persist=True,
-                    verbose=False
+                    verbose=False,
+                    **INFER_KW
                 )[0]
-            except Exception:
+            except Exception as exc:
+                print(f"[track] Tắt tracking, chuyển sang predict: {exc}")
                 use_tracking = False
                 results = model(
                     frame,
@@ -654,7 +686,8 @@ def run_detection(
                     conf=min_conf,
                     iou=0.45,
                     agnostic_nms=False,
-                    verbose=False
+                    verbose=False,
+                    **INFER_KW
                 )[0]
         else:
             results = model(
@@ -663,7 +696,8 @@ def run_detection(
                 conf=min_conf,
                 iou=0.45,
                 agnostic_nms=False,
-                verbose=False
+                verbose=False,
+                **INFER_KW
             )[0]
 
         frame_vis = cv2.resize(frame, (out_w, out_h))
@@ -673,8 +707,8 @@ def run_detection(
         max_sec = max(max_sec, current_sec)
         untracked_no_helmet = 0
 
-        bike_boxes = []
         raw_head_detections = []
+        raw_bike_detections = []
 
         for box in results.boxes:
             x1, y1, x2, y2 = box.xyxy[0].tolist()
@@ -686,21 +720,10 @@ def run_detection(
                 if raw_cls == "no-helmet" and min(x2 - x1, y2 - y1) < max(12.0, orig_w * 0.010):
                     continue
                 raw_head_detections.append((x1, y1, x2, y2, raw_cls, raw_conf))
-                continue
+            elif raw_cls == "motorbike":
+                raw_bike_detections.append((x1, y1, x2, y2, "motorbike", raw_conf))
 
-            if box.id is not None:
-                tid = int(box.id[0].item())
-                stable_cls, smooth_conf = label_stabilizer.update(tid, raw_cls, raw_conf)
-                x1, y1, x2, y2 = bbox_smoother.update(tid, (x1, y1, x2, y2))
-                if stable_cls is None:
-                    continue
-            else:
-                tid, stable_cls, smooth_conf = None, raw_cls, raw_conf
-
-            if stable_cls in ("motobike", "motorbike") and smooth_conf >= conf_bike:
-                bike_boxes.append((x1, y1, x2, y2, "motorbike", smooth_conf, tid))
-
-        bike_boxes = suppress_duplicate_bike_boxes(bike_boxes, iou_threshold=0.60)
+        bike_boxes = track_motorbikes(bike_tracker, raw_bike_detections, conf_bike)
         raw_head_detections = suppress_duplicate_head_boxes(raw_head_detections, iou_threshold=0.55)
         head_boxes = head_tracker.update(raw_head_detections, conf_helmet, conf_no_helmet)
 
@@ -1141,8 +1164,7 @@ div[class*="st-key-control_panel"],
 div[class*="st-key-timeline_panel"],
 div[class*="st-key-recent_panel"],
 div[class*="st-key-panel_"],
-div[class*="st-key-ov_"],
-div[class*="st-key-history_"] {
+div[class*="st-key-ov_"] {
   box-sizing: border-box !important;
   width: 100% !important;
   max-width: 100% !important;
@@ -1620,8 +1642,7 @@ div[class*="st-key-control_panel"],
 div[class*="st-key-timeline_panel"],
 div[class*="st-key-recent_panel"],
 div[class*="st-key-panel_"],
-div[class*="st-key-ov_"],
-div[class*="st-key-history_"] {
+div[class*="st-key-ov_"] {
   background: linear-gradient(155deg, rgba(17,32,49,.98), rgba(13,25,40,.98)) !important;
   border: 1px solid #254158 !important; border-radius: 16px !important;
   box-shadow: 0 12px 32px rgba(0,0,0,.20), inset 0 1px rgba(255,255,255,.025) !important;
@@ -1847,6 +1868,13 @@ header[data-testid="stHeader"] * { pointer-events: none !important; }
     visibility: visible !important; opacity: 1 !important;
   }
 }
+
+/* 9. Trang lịch sử: thẻ kết quả (st.container(border=True)) + nút bấm gọn gàng */
+div[class*="st-key-hbtn_"] {
+  background: transparent !important; border: 0 !important; box-shadow: none !important;
+  padding: 0 !important; min-height: 0 !important; margin-bottom: 8px !important;
+}
+div[class*="st-key-hbtn_"] .stButton > button { width: 100% !important; }
 """
 
 
@@ -2029,12 +2057,13 @@ class FrameAnalyzer:
         self.min_conf = min(
             params["conf_helmet"], params["conf_no_helmet"], params["conf_bike"]
         )
-        self.label_stabilizer = TrackLabelStabilizer(conf_alpha=params["ema_alpha"])
         self.head_tracker = HeadObjectTracker(max_age=12, bbox_alpha=BBOX_EMA_ALPHA,
+                                              label_alpha=params["ema_alpha"])
+        # Tracker riêng cho xe máy, không phụ thuộc ID của ByteTrack.
+        self.bike_tracker = HeadObjectTracker(max_age=15, bbox_alpha=BBOX_EMA_ALPHA,
                                               label_alpha=params["ema_alpha"])
         self.bike_track_frames = defaultdict(int)
         self.head_track_votes = defaultdict(list)
-        self.bbox_smoother = TrackBBoxSmoother(BBOX_EMA_ALPHA)
         self.frame_idx = 0
         self.conf_sum = 0.0
         self.conf_n = 0
@@ -2043,14 +2072,15 @@ class FrameAnalyzer:
         infer_conf = float(conf_override) if conf_override is not None else self.min_conf
         kwargs = dict(
             imgsz=self.p["imgsz"], conf=infer_conf, iou=0.45,
-            agnostic_nms=False, verbose=False,
+            agnostic_nms=False, verbose=False, **INFER_KW
         )
         if self.use_tracking:
             try:
                 return self.model.track(
                     frame, tracker=self.tracker_path, persist=True, **kwargs
                 )[0]
-            except Exception:
+            except Exception as exc:
+                print(f"[track] Tắt tracking, chuyển sang predict: {exc}")
                 self.use_tracking = False
         return self.model(frame, **kwargs)[0]
 
@@ -2082,7 +2112,7 @@ class FrameAnalyzer:
         box_th = max(2, int(round(min(w, h) / 400)))
 
         raw_probe = []
-        bike_boxes, raw_head_detections = [], []
+        raw_bike_detections, raw_head_detections = [], []
         for box in results.boxes:
             x1, y1, x2, y2 = box.xyxy[0].tolist()
             raw_conf = float(box.conf[0].item())
@@ -2095,19 +2125,10 @@ class FrameAnalyzer:
                 if raw_cls == "no-helmet" and min(x2 - x1, y2 - y1) < max(12.0, w * 0.010):
                     continue
                 raw_head_detections.append((x1, y1, x2, y2, raw_cls, raw_conf))
-                continue
+            elif raw_cls == "motorbike":
+                raw_bike_detections.append((x1, y1, x2, y2, "motorbike", raw_conf))
 
-            if box.id is not None:
-                tid = int(box.id[0].item())
-                stable_cls, smooth_conf = self.label_stabilizer.update(tid, raw_cls, raw_conf)
-                x1, y1, x2, y2 = self.bbox_smoother.update(tid, (x1, y1, x2, y2))
-            else:
-                tid, smooth_conf, stable_cls = None, raw_conf, raw_cls
-
-            if stable_cls in ("motobike", "motorbike") and smooth_conf >= self.p["conf_bike"]:
-                bike_boxes.append((x1, y1, x2, y2, "motorbike", smooth_conf, tid))
-
-        bike_boxes = suppress_duplicate_bike_boxes(bike_boxes, iou_threshold=0.60)
+        bike_boxes = track_motorbikes(self.bike_tracker, raw_bike_detections, self.p["conf_bike"])
         raw_head_detections = suppress_duplicate_head_boxes(raw_head_detections, iou_threshold=0.55)
         head_boxes = self.head_tracker.update(
             raw_head_detections, self.p["conf_helmet"], self.p["conf_no_helmet"]
@@ -2624,15 +2645,18 @@ def render_history_mode(device_label):
                 )
 
             with col2:
+                # Key KHÔNG bắt đầu bằng "history_" để tránh dính CSS panel (st-key-history_*)
                 if st.button(
                     "Xem chi tiết",
-                    key=f"history_view_{item['id']}"
+                    key=f"hbtn_view_{item['id']}",
+                    width="stretch",
                 ):
                     st.session_state.selected_history_id = item["id"]
 
                 if st.button(
                     "Xóa",
-                    key=f"history_delete_{item['id']}"
+                    key=f"hbtn_del_{item['id']}",
+                    width="stretch",
                 ):
                     delete_history(item["id"])
 
@@ -2666,7 +2690,7 @@ def render_history_mode(device_label):
             else:
                 st.warning("Không tìm thấy video kết quả.")
 
-            if st.button("Đóng chi tiết"):
+            if st.button("Đóng chi tiết", key="hbtn_close_detail"):
                 st.session_state.pop("selected_history_id", None)
                 st.rerun()
 
@@ -2725,7 +2749,7 @@ with st.sidebar:
         '<div class="sb-brand-divider"></div>',
         unsafe_allow_html=True
     )
-    
+
     st.markdown('<div class="sb-section">KHÔNG GIAN LÀM VIỆC</div>', unsafe_allow_html=True)
     nav_items = [
         ("Phân tích video", MODE_VIDEO, "nav_analysis", ":material/play_circle:"),
@@ -3020,11 +3044,12 @@ with right_col:
                             "ema_alpha": ema_alpha, "bbox_alpha": BBOX_EMA_ALPHA,
                             "min_track_frames": min_track_frames,
                             "filter_on_bike": filter_on_bike, "show_track_id": show_track_id,
+                            "target_process_fps": TARGET_PROCESS_FPS,
                         }
                         task = {
                             "done": False, "applied": False, "status": "running",
                             "error": None, "result": None, "elapsed": 0.0,
-                            "source_video_path": input_video_path,"history_saved": False,
+                            "source_video_path": input_video_path, "history_saved": False,
                             "pause_event": threading.Event(),
                             "only_violation_logs": bool(st.session_state.get("recent_only_violations", False)),
                             "progress": {"fraction": 0.0, "frame": 0, "total": int(video_info.get("frames", 0)), "status": "running"},
