@@ -3021,9 +3021,6 @@ def render_history_detail(selected_id, history_items, device_label):
                     st.warning("Không tìm thấy ảnh kết quả.")
     else:
         st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
-        render_timeline_panel(sel_stats, "timeline_panel_history")
-
-        st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
         video_path = selected.get("result_video_path")
         with panel("panel_history_video"):
             render_html('<div class="card-title"><span>◉  Video kết quả</span></div>')
@@ -3031,6 +3028,9 @@ def render_history_detail(selected_id, history_items, device_label):
                 st.video(video_path)
             else:
                 st.warning("Không tìm thấy video kết quả.")
+
+        st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+        render_timeline_panel(sel_stats, "timeline_panel_history")
 
     with st.expander("Xem bảng dữ liệu chi tiết & cấu hình phân tích", expanded=False):
         if is_image:
