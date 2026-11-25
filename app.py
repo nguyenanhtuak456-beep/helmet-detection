@@ -1985,16 +1985,16 @@ def style_chart(chart):
 
 def show_altair(chart):
     try:
-        st.altair_chart(style_chart(chart), use_container_width=True, theme=None)
+        st.altair_chart(style_chart(chart), width="stretch", theme=None)
     except TypeError:
-        st.altair_chart(style_chart(chart), use_container_width=True)
+        st.altair_chart(style_chart(chart), width="stretch")
 
 
 def show_table(df):
     try:
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.dataframe(df, width="stretch", hide_index=True)
     except TypeError:
-        st.dataframe(df, use_container_width=True)
+        st.dataframe(df, width="stretch")
 
 
 def render_footer():
@@ -2192,7 +2192,7 @@ def decode_image(data):
 
 def show_image(img):
     try:
-        st.image(img, use_container_width=True)
+        st.image(img, width="stretch")
     except TypeError:
         st.image(img, use_column_width=True)
 
@@ -2285,7 +2285,7 @@ def render_image_mode(model_path, model_exists, params):
 
         if files:
             if st.button("▶  Bắt đầu nhận diện ảnh", type="primary",
-                         use_container_width=True, key="btn_image_detect"):
+                         width="stretch", key="btn_image_detect"):
                 if not model_exists:
                     st.error(f"❌ Không tìm thấy tệp mô hình tại `{model_path}`.")
                 else:
@@ -2511,7 +2511,7 @@ def _render_video_status():
     render_html(f'<div style="text-align:right"><span class="live-pill {css}"><i></i>{label}</span></div>')
 
 
-def render_video_progress():
+def _render_video_progress_inner():
     """Hiển thị tiến trình xử lý video và điều khiển tạm dừng/tiếp tục."""
     task = st.session_state.get("video_detection_task")
     if not task:
@@ -2576,7 +2576,7 @@ def render_video_progress():
     if pause_event is not None:
         is_paused = pause_event.is_set()
         button_label = "▶ Tiếp tục xử lý" if is_paused else "Ⅱ Tạm dừng xử lý"
-        if st.button(button_label, use_container_width=True, key="video_progress_pause_toggle"):
+        if st.button(button_label, width="stretch", key="video_progress_pause_toggle"):
             if is_paused:
                 pause_event.clear()
             else:
@@ -2584,9 +2584,13 @@ def render_video_progress():
             st.rerun()
 
 
-if hasattr(st, "fragment"):
-    render_video_progress = st.fragment(run_every=0.5)(render_video_progress)
-    _render_video_status = st.fragment(run_every=0.5)(_render_video_status)
+def render_video_progress():
+    task = st.session_state.get("video_detection_task")
+    running = bool(task and not task.get("done"))
+    if hasattr(st, "fragment"):
+        st.fragment(run_every=0.5 if running else None)(_render_video_progress_inner)()
+    else:
+        _render_video_progress_inner()
 
 
 def render_history_mode(device_label):
@@ -2731,13 +2735,13 @@ with st.sidebar:
         is_active = st.session_state.active_nav == key
         try:
             st.button(
-                label, key=key, icon=icon_name, use_container_width=True,
+                label, key=key, icon=icon_name, width="stretch",
                 type="primary" if is_active else "secondary",
                 on_click=set_mode, args=(mode, key),
             )
         except TypeError:
             st.button(
-                label, key=key, use_container_width=True,
+                label, key=key, width="stretch",
                 type="primary" if is_active else "secondary",
                 on_click=set_mode, args=(mode, key),
             )
@@ -2747,13 +2751,13 @@ with st.sidebar:
     try:
         st.button(
             "Lịch sử phát hiện", key="nav_history", icon=":material/history:",
-            use_container_width=True,
+            width="stretch",
             type="primary" if is_hist_active else "secondary",
             on_click=set_mode, args=(MODE_VIDEO, "nav_history")
         )
     except TypeError:
         st.button(
-            "Lịch sử phát hiện", key="nav_history", use_container_width=True,
+            "Lịch sử phát hiện", key="nav_history", width="stretch",
             type="primary" if is_hist_active else "secondary",
             on_click=set_mode, args=(MODE_VIDEO, "nav_history")
         )
@@ -3002,7 +3006,7 @@ with right_col:
         task_running = bool(task and not task.get("done"))
         task_waiting_commit = bool(task and task.get("done") and task.get("result") and not task.get("applied"))
         if input_video_path and not task_running and not task_waiting_commit:
-            if st.button("▶  Bắt đầu xử lý", type="primary", use_container_width=True, key="dashboard_start_detection"):
+            if st.button("▶  Bắt đầu xử lý", type="primary", width="stretch", key="dashboard_start_detection"):
                 if not model_exists:
                     st.error(f"Không tìm thấy model: {model_path}")
                 else:
@@ -3048,11 +3052,11 @@ with right_col:
         elif task_waiting_commit:
             st.info("Đang cập nhật kết quả xử lý...")
         elif not input_video_path:
-            st.button("▶  Bắt đầu xử lý", disabled=True, use_container_width=True, key="dashboard_disabled_start")
+            st.button("▶  Bắt đầu xử lý", disabled=True, width="stretch", key="dashboard_disabled_start")
         elif task and task.get("done") and task.get("error"):
             st.error("Lần xử lý gần nhất gặp lỗi. Hãy kiểm tra video/model rồi chạy lại.")
         else:
-            st.button("✓  Xử lý hoàn tất", disabled=True, use_container_width=True, key="dashboard_done_button")
+            st.button("✓  Xử lý hoàn tất", disabled=True, width="stretch", key="dashboard_done_button")
 
 # ------------------------ FOUR SMART KPI CARDS ------------------------
 stats = st.session_state.stats or {"motorbike": 0, "helmet": 0, "no_helmet": 0, "avg_conf": 0.0}
@@ -3184,7 +3188,7 @@ if stats:
         with summary_col:
             summary_df = pd.DataFrame({
                 "Chỉ số": ["Xe máy", "Đội mũ", "Không đội mũ", "Mã đầu theo dõi", "Mã theo dõi chưa đủ bằng chứng", "Độ tin cậy trung bình"],
-                "Giá trị": [stats["motorbike"], stats["helmet"], stats["no_helmet"], stats.get("head_track_ids", 0), stats.get("uncertain_head_tracks", 0), f'{stats["avg_conf"]:.1f}%'],
+                "Giá trị": [str(v) for v in (stats["motorbike"], stats["helmet"], stats["no_helmet"], stats.get("head_track_ids", 0), stats.get("uncertain_head_tracks", 0), f'{stats["avg_conf"]:.1f}%')],
             })
             show_table(summary_df)
 
@@ -3195,9 +3199,9 @@ with panel("export_bar"):
     with exp_a:
         if video_ready:
             with open(st.session_state.processed_video_path, "rb") as f:
-                st.download_button("⬇  Xuất MP4", data=f, file_name="helmet_detected_output.mp4", mime="video/mp4", use_container_width=True, key="download_video_reference")
+                st.download_button("⬇  Xuất MP4", data=f, file_name="helmet_detected_output.mp4", mime="video/mp4", width="stretch", key="download_video_reference")
         else:
-            st.button("⬇  Xuất MP4", disabled=True, use_container_width=True, key="download_video_disabled")
+            st.button("⬇  Xuất MP4", disabled=True, width="stretch", key="download_video_disabled")
     with exp_b:
         if stats:
             times = sorted(stats.get("timeline", {}).keys())
@@ -3206,8 +3210,8 @@ with panel("export_bar"):
                 "Đội mũ": [stats.get("helmet_timeline", {}).get(t, 0) for t in times],
                 "Không đội mũ": [stats["timeline"].get(t, 0) for t in times],
             })
-            st.download_button("⇩  Xuất CSV", data=export_df.to_csv(index=False).encode("utf-8-sig"), file_name="Traffic_Analysis.csv", mime="text/csv", use_container_width=True, key="download_csv_reference")
+            st.download_button("⇩  Xuất CSV", data=export_df.to_csv(index=False).encode("utf-8-sig"), file_name="Traffic_Analysis.csv", mime="text/csv", width="stretch", key="download_csv_reference")
         else:
-            st.button("⇩  Xuất CSV", disabled=True, use_container_width=True, key="download_csv_disabled")
+            st.button("⇩  Xuất CSV", disabled=True, width="stretch", key="download_csv_disabled")
     with exp_c:
         render_html('<div class="atv-footer" style="border:0;margin:0;padding:10px 2px;justify-content:flex-end"><span><b>AI Traffic Vision v1.0</b>&nbsp;&nbsp;|&nbsp;&nbsp;Powered by YOLOv8s + ByteTrack</span></div>')
