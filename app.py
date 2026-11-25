@@ -2537,6 +2537,22 @@ def render_video_progress():
         run_cfg["elapsed"] = task.get("elapsed", 0.0)
         run_cfg["finished_at"] = datetime.now().strftime("%H:%M:%S %d/%m/%Y")
         st.session_state.run_config = run_cfg
+        if not task.get("history_saved"):
+            try:
+                add_history(
+                    video_name=run_cfg.get("file_name")
+                    or os.path.basename(task.get("source_video_path") or "")
+                    or "video",
+                    source_video_path=task.get("source_video_path"),
+                    result_video_path=result["processed_video_path"],
+                    stats=result["stats"],
+                    config=run_cfg,
+                    recent_detections=result["recent_detections"],
+                    elapsed=task.get("elapsed", 0.0),
+                )
+                task["history_saved"] = True
+            except Exception as exc:
+                print(f"[history] Không lưu được lịch sử: {exc}")
         task["applied"] = True
         st.rerun()
 
@@ -2599,7 +2615,7 @@ def render_history_mode(device_label):
                 c3.metric("Không mũ", item["no_helmet"])
 
                 st.caption(
-                    f"Độ tin cậy trung bình: {item['avg_conf']:.2%} | "
+                    f"Độ tin cậy trung bình: {item['avg_conf']:.1f}% | "
                     f"Thời gian xử lý: {item['elapsed']:.2f} giây"
                 )
 
