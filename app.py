@@ -1771,14 +1771,19 @@ hr { border-color: #294258 !important; }
 [data-testid="stFileUploader"] button p::after {
   content: "Chọn tệp"; font-size: 13px !important; line-height: 1.2 !important; letter-spacing: .2px;
 }
-[data-testid="stFileUploaderDropzoneInstructions"] small { font-size: 0 !important; }
-[data-testid="stFileUploaderDropzoneInstructions"] small::after {
-  content: "Tối đa 100MB mỗi tệp"; font-size: 12.5px !important; color: #a9c1d2;
+/* nút "Chọn tệp": bỏ viền oval kép do p bị tô nền riêng */
+[data-testid="stFileUploader"] button p {
+  background: transparent !important; border: 0 !important; box-shadow: none !important; padding: 0 !important;
 }
-div[class*="st-key-dashboard_video_upload"] [data-testid="stFileUploaderDropzoneInstructions"] small::after {
+/* dòng giới hạn: nhắm vào khối không chứa nút, độc lập tên thẻ */
+[data-testid="stFileUploaderDropzone"] > div:not(:has(button)) * { font-size: 0 !important; }
+[data-testid="stFileUploaderDropzone"] > div:not(:has(button))::after {
+  content: "Tối đa 100MB mỗi tệp"; font-size: 12.5px; color: #a9c1d2; white-space: nowrap;
+}
+div[class*="st-key-dashboard_video_upload"] [data-testid="stFileUploaderDropzone"] > div:not(:has(button))::after {
   content: "Tối đa 100MB · MP4, AVI, MOV, M4V";
 }
-div[class*="st-key-image_uploader"] [data-testid="stFileUploaderDropzoneInstructions"] small::after {
+div[class*="st-key-image_uploader"] [data-testid="stFileUploaderDropzone"] > div:not(:has(button))::after {
   content: "Tối đa 100MB · JPG, PNG, BMP, WEBP";
 }
 
@@ -1798,6 +1803,39 @@ button:focus-visible, [data-baseweb] :focus-visible { outline: 2px solid #22d3ee
 *::-webkit-scrollbar { width: 8px; height: 8px; }
 *::-webkit-scrollbar-thumb { background: #31516b; border-radius: 8px; }
 *::-webkit-scrollbar-track { background: transparent; }
+
+/* 6. Giữ nút mở lại sidebar: CSS gốc ẩn cả header nên thu gọn xong không mở lại được */
+header[data-testid="stHeader"] {
+  display: block !important; height: 3rem !important; min-height: 0 !important;
+  background: transparent !important; pointer-events: none !important; z-index: 999 !important;
+}
+header[data-testid="stHeader"] * { pointer-events: none !important; }
+[data-testid="stExpandSidebarButton"], [data-testid="stSidebarCollapsedControl"], [data-testid="collapsedControl"],
+[data-testid="stExpandSidebarButton"] *, [data-testid="stSidebarCollapsedControl"] *, [data-testid="collapsedControl"] * {
+  display: flex !important; visibility: visible !important; pointer-events: auto !important;
+}
+[data-testid="stExpandSidebarButton"], [data-testid="stSidebarCollapsedControl"], [data-testid="collapsedControl"] {
+  align-items: center; background: #0b1727 !important; border: 1px solid #2b4c64 !important;
+  border-radius: 10px !important; margin: 10px 0 0 10px !important; padding: 2px !important;
+  color: #67e8f9 !important; box-shadow: 0 0 18px rgba(34,211,238,.18) !important;
+}
+[data-testid="stExpandSidebarButton"] svg, [data-testid="stSidebarCollapsedControl"] svg, [data-testid="collapsedControl"] svg {
+  color: #67e8f9 !important; fill: currentColor;
+}
+
+/* 7. Chip / pill trắng -> hợp tông nền tối */
+.legend span, .chip {
+  background: rgba(20,36,56,.9) !important; border-color: #2a465d !important; color: #cfe3f1 !important;
+}
+.chip.ok { background: rgba(52,211,153,.12) !important; border-color: rgba(52,211,153,.35) !important; color: #6ee7b7 !important; }
+.chip.warn { background: rgba(251,191,36,.12) !important; border-color: rgba(251,191,36,.35) !important; color: #fcd34d !important; }
+.chip.bad { background: rgba(251,113,133,.12) !important; border-color: rgba(251,113,133,.38) !important; color: #fda4af !important; }
+.chip.tech { background: rgba(56,189,248,.12) !important; border-color: rgba(56,189,248,.35) !important; color: #7dd3fc !important; }
+.live-pill.wait { background: rgba(148,163,184,.12) !important; border-color: #31516b !important; color: #b6cadb !important; }
+.live-pill.ready { background: rgba(56,189,248,.12) !important; border-color: rgba(56,189,248,.35) !important; color: #7dd3fc !important; }
+.live-pill.active { background: rgba(251,113,133,.12) !important; border-color: rgba(251,113,133,.38) !important; color: #fda4af !important; }
+.live-pill.paused { background: rgba(251,191,36,.12) !important; border-color: rgba(251,191,36,.35) !important; color: #fcd34d !important; }
+.live-pill.done { background: rgba(52,211,153,.12) !important; border-color: rgba(52,211,153,.35) !important; color: #6ee7b7 !important; }
 """
 
 
