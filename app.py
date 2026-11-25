@@ -1875,6 +1875,49 @@ div[class*="st-key-hbtn_"] {
   padding: 0 !important; min-height: 0 !important; margin-bottom: 8px !important;
 }
 div[class*="st-key-hbtn_"] .stButton > button { width: 100% !important; }
+
+/* 10. Thẻ lịch sử nổi bật: viền trái theo trạng thái, chỉ số lớn có màu */
+div[class*="st-key-hcard_"] {
+  background: linear-gradient(155deg, rgba(20,38,58,.98), rgba(13,25,40,.98)) !important;
+  border: 1px solid #2c4d66 !important;
+  border-left: 5px solid #2dd4bf !important;
+  border-radius: 16px !important;
+  padding: 18px 20px !important;
+  margin-bottom: 14px !important;
+  box-shadow: 0 10px 28px rgba(0,0,0,.28), inset 0 1px rgba(255,255,255,.04) !important;
+  transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+div[class*="st-key-hcard_bad_"] { border-left-color: #fb7185 !important; }
+div[class*="st-key-hcard_ok_"]  { border-left-color: #2dd4bf !important; }
+div[class*="st-key-hcard_"]:hover {
+  border-color: #22d3ee !important;
+  box-shadow: 0 0 0 1px rgba(34,211,238,.25), 0 14px 34px rgba(0,0,0,.36) !important;
+  transform: translateY(-2px);
+}
+.h-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.h-title { font-size: 17px; font-weight: 800; color: #f0fbff !important; letter-spacing: -.2px; line-height: 1.3; }
+.h-badge {
+  display: inline-block; padding: 3px 10px; border-radius: 7px;
+  font-size: 10.5px; font-weight: 800; letter-spacing: .8px;
+}
+.h-badge.vid { background: rgba(34,211,238,.16); color: #67e8f9; border: 1px solid rgba(34,211,238,.4); }
+.h-badge.img { background: rgba(167,139,250,.16); color: #c4b5fd; border: 1px solid rgba(167,139,250,.4); }
+.h-time { margin: 6px 0 2px; font-size: 12.5px; color: #8fb0c6; font-weight: 600; }
+.h-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 14px 0 12px; }
+.h-tile {
+  background: linear-gradient(145deg, var(--tt), rgba(16,30,48,.95));
+  border: 1px solid color-mix(in srgb, var(--tc) 38%, transparent);
+  border-left: 4px solid var(--tc);
+  border-radius: 13px; padding: 12px 16px 10px;
+}
+.h-tile-l { font-size: 11px; font-weight: 800; letter-spacing: .9px; color: #b4cbdb; }
+.h-tile-v {
+  font-size: 42px; line-height: 1.05; font-weight: 800; color: var(--tc);
+  font-variant-numeric: tabular-nums; letter-spacing: -1px; margin-top: 2px;
+  text-shadow: 0 0 22px color-mix(in srgb, var(--tc) 45%, transparent);
+}
+.h-foot { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+@media (max-width: 760px) { .h-tiles { grid-template-columns: 1fr; } }
 """
 
 
@@ -2792,6 +2835,24 @@ def render_timeline_panel(stats, panel_key):
                 )
 
 
+def history_card(item_id, has_violation):
+    """Khung thẻ lịch sử; key mã hóa trạng thái để CSS đổi màu viền trái."""
+    key = f"hcard_{'bad' if has_violation else 'ok'}_{item_id}"
+    try:
+        return st.container(border=True, key=key)
+    except TypeError:
+        return st.container(border=True)
+
+
+def history_tile(label, value, color, tint):
+    return (
+        f'<div class="h-tile" style="--tc:{color};--tt:{tint}">'
+        f'<div class="h-tile-l">{label}</div>'
+        f'<div class="h-tile-v">{int(value)}</div>'
+        f'</div>'
+    )
+
+
 def render_history_mode(device_label):
     st.markdown("## LỊCH SỬ PHÂN TÍCH")
     st.caption("Quản lý các video đã được AI phân tích.")
@@ -2805,21 +2866,47 @@ def render_history_mode(device_label):
     st.write(f"Tổng số lần phân tích: {len(history_items)}")
 
     for item in history_items:
-        with st.container(border=True):
+        has_violation = int(item["no_helmet"]) > 0
+        with history_card(item["id"], has_violation):
             col1, col2 = st.columns([4, 1])
 
             with col1:
-                st.markdown(f"**{item['video_name']}**")
-                st.caption(f"Thời gian: {item['created_at']}")
+                raw_name = str(item["video_name"])
+                is_img_item = raw_name.startswith("[Ảnh]")
+                display_name = raw_name.replace("[Ảnh]", "", 1).strip() if is_img_item else raw_name
+                badge = (
+                    '<span class="h-badge img">ẢNH</span>' if is_img_item
+                    else '<span class="h-badge vid">VIDEO</span>'
+                )
 
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Xe máy", item["motorbike"])
-                c2.metric("Có mũ", item["helmet"])
-                c3.metric("Không mũ", item["no_helmet"])
+                n_h = int(item["helmet"])
+                n_nh = int(item["no_helmet"])
+                total_h = n_h + n_nh
+                rate_chip = (
+                    f'<span class="chip ok">Tuân thủ {n_h / total_h * 100:.0f}%</span>'
+                    if total_h > 0 and not has_violation
+                    else (f'<span class="chip bad">⚠ Vi phạm {n_nh / total_h * 100:.0f}%</span>'
+                          if total_h > 0 else "")
+                )
 
-                st.caption(
-                    f"Độ tin cậy trung bình: {item['avg_conf']:.1f}% | "
-                    f"Thời gian xử lý: {item['elapsed']:.2f} giây"
+                render_html(
+                    f"""
+                    <div class="h-head">
+                      {badge}
+                      <span class="h-title">{html_lib.escape(display_name)}</span>
+                    </div>
+                    <div class="h-time">🕒 {html_lib.escape(str(item['created_at']))}</div>
+                    <div class="h-tiles">
+                      {history_tile("XE MÁY", item["motorbike"], "#60a5fa", "rgba(96,165,250,.14)")}
+                      {history_tile("CÓ MŨ", item["helmet"], "#2dd4bf", "rgba(45,212,191,.14)")}
+                      {history_tile("KHÔNG MŨ", item["no_helmet"], "#fb7185", "rgba(251,113,133,.16)")}
+                    </div>
+                    <div class="h-foot">
+                      <span class="chip tech">Độ tin cậy TB: {float(item['avg_conf']):.1f}%</span>
+                      <span class="chip">Thời gian xử lý: {float(item['elapsed']):.2f} giây</span>
+                      {rate_chip}
+                    </div>
+                    """
                 )
 
             with col2:
